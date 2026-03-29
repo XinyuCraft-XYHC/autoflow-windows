@@ -1,0 +1,9 @@
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0
+psutil>=5.9.0
+pywin32>=306
+watchdog>=3.0.0
+schedule>=1.2.0
+imaplib2>=3.6
+pyinstaller>=6.0.0
+plyer>=2.1.0

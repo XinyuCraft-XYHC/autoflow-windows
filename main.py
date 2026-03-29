@@ -1,0 +1,331 @@
+"""
+AutoFlow 主入口
+"""
+import sys
+import os
+import logging
+import json
+
+# 确保能找到 src 包
+sys.path.insert(0, os.path.dirname(__file__))
+
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import Qt
+from src.ui.main_window import MainWindow
+from src.ui.onboarding import (
+    should_show_disclaimer, should_show_tutorial,
+    DisclaimerDialog, TutorialDialog
+)
+
+
+# ──────────────────────────────────────────────────────────────
+# 管理员权限检测与 UAC 提权
+# ──────────────────────────────────────────────────────────────
+
+def _is_admin() -> bool:
+    """检测当前进程是否以管理员身份运行"""
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _relaunch_as_admin() -> bool:
+    """
+    尝试通过 UAC 以管理员身份重新启动本程序。
+    成功触发 UAC 请求后返回 True（当前进程应立即退出）。
+    返回 False 表示用户取消 / 提权失败。
+    """
+    import ctypes
+
+    # 判断当前运行环境：打包 exe 还是 Python 脚本
+    if getattr(sys, "frozen", False):
+        # PyInstaller 打包后：sys.argv[0] 是 .exe 真实路径
+        exe = sys.argv[0]
+        params = " ".join(f'"{a}"' for a in sys.argv[1:]) if len(sys.argv) > 1 else None
+    else:
+        # 开发环境：用 python.exe 重跑 main.py
+        exe = sys.executable
+        script = os.path.abspath(__file__)
+        extra = " ".join(f'"{a}"' for a in sys.argv[1:]) if len(sys.argv) > 1 else ""
+        params = f'"{script}" {extra}'.strip()
+
+    SW_SHOWNORMAL = 1
+    ret = ctypes.windll.shell32.ShellExecuteW(
+        None, "runas", exe, params, None, SW_SHOWNORMAL
+    )
+    # ShellExecuteW 返回值 > 32 表示成功触发
+    return int(ret) > 32
+
+
+def _check_and_elevate():
+    """
+    检测管理员权限，若缺少则自动提权。
+    此函数在 QApplication 创建之前调用，无法使用 Qt 弹窗，
+    退出/提权均通过 sys.exit 完成。
+    """
+    if _is_admin():
+        return  # 已是管理员，直接继续
+
+    # 尝试自动提权（触发 UAC）
+    success = _relaunch_as_admin()
+    if success:
+        # UAC 请求已发出，新进程（管理员）正在启动，当前进程退出
+        sys.exit(0)
+    else:
+        # 用户拒绝了 UAC 或提权失败
+        # 此时 QApplication 尚未创建，用 ctypes MessageBox 提示
+        import ctypes
+        MB_YESNO        = 0x00000004
+        MB_ICONWARNING  = 0x00000030
+        IDYES           = 6
+        msg = (
+            "AutoFlow 需要管理员权限才能正常执行键鼠操作\n"
+            "（如向其他程序注入鼠标点击、键盘输入等）。\n\n"
+            "未以管理员身份运行时，向高权限程序的鼠标/键盘操作将被\n"
+            "Windows UIPI 机制静默丢弃，导致自动化流程失效。\n\n"
+            "建议：右键程序图标 → 以管理员身份运行\n\n"
+            "是否仍以普通权限继续运行（部分功能可能失效）？"
+        )
+        result = ctypes.windll.user32.MessageBoxW(
+            0, msg, "AutoFlow - 需要管理员权限", MB_YESNO | MB_ICONWARNING
+        )
+        if result != IDYES:
+            sys.exit(0)
+        # 用户选择继续（带限制运行）
+
+
+# ──────────────────────────────────────────────────────────────
+# 单实例检测（防止重复开启）
+# ──────────────────────────────────────────────────────────────
+
+_MUTEX_HANDLE = None   # 保持引用，防止被 GC
+
+def _ensure_single_instance():
+    """
+    使用 Windows 命名互斥体确保只有一个 AutoFlow 实例运行。
+    若已有实例，则激活其窗口并退出当前进程。
+    必须在 QApplication 创建之前调用（使用 ctypes MessageBox）。
+    """
+    global _MUTEX_HANDLE
+    import ctypes
+
+    MUTEX_NAME = "Global\\AutoFlow_SingleInstance_XinyuCraft"
+    ERROR_ALREADY_EXISTS = 183
+
+    handle = ctypes.windll.kernel32.CreateMutexW(None, True, MUTEX_NAME)
+    last_error = ctypes.windll.kernel32.GetLastError()
+
+    if last_error == ERROR_ALREADY_EXISTS:
+        # 已有实例运行，尝试激活其窗口
+        hwnd = ctypes.windll.user32.FindWindowW("AutoFlowMainWindow", None)
+        if not hwnd:
+            # 按窗口标题查找（兜底）
+            hwnd = ctypes.windll.user32.FindWindowW(None, "AutoFlow")
+        if hwnd:
+            # 如果最小化则恢复
+            SW_RESTORE = 9
+            ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        else:
+            MB_OK = 0x00000000
+            MB_ICONINFORMATION = 0x00000040
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "AutoFlow 已在运行中！\n\n请在任务栏或系统托盘中找到已运行的窗口。",
+                "AutoFlow - 已在运行",
+                MB_OK | MB_ICONINFORMATION
+            )
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+        sys.exit(0)
+    else:
+        # 当前是第一个实例，持有互斥体句柄直到进程退出
+        _MUTEX_HANDLE = handle
+
+
+def _ensure_language_dir(local_appdata: str):
+    """
+    确保 Language 目录存在，并写入示例/内置语言包文件（如不存在）。
+    调用者无需关心是否首次运行。
+    """
+    lang_dir = os.path.join(local_appdata, "XinyuCraft", "AutoFlow", "Language")
+    os.makedirs(lang_dir, exist_ok=True)
+
+    # 写入英文包（如不存在）
+    en_path = os.path.join(lang_dir, "en_US.json")
+    if not os.path.exists(en_path):
+        en_pack = {
+            "_meta": {
+                "name": "English (US)",
+                "author": "AutoFlow built-in",
+                "version": "1.0"
+            },
+            "app.name": "AutoFlow",
+            "settings.language.en_US": "English (US)",
+            "settings.language.zh_CN": "Simplified Chinese",
+            "settings.language.zh_TW": "Traditional Chinese"
+        }
+        try:
+            import json as _json
+            with open(en_path, "w", encoding="utf-8") as f:
+                _json.dump(en_pack, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # 写入繁体中文包（如不存在）
+    tw_path = os.path.join(lang_dir, "zh_TW.json")
+    if not os.path.exists(tw_path):
+        tw_pack = {
+            "_meta": {
+                "name": "繁體中文",
+                "author": "AutoFlow built-in",
+                "version": "1.0"
+            },
+            "settings.language.zh_TW": "繁體中文",
+            "settings.language.zh_CN": "簡體中文",
+            "settings.language.en_US": "英文 (美國)"
+        }
+        try:
+            import json as _json
+            with open(tw_path, "w", encoding="utf-8") as f:
+                _json.dump(tw_pack, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # 写入使用说明 README（如不存在）
+    readme_path = os.path.join(lang_dir, "README.txt")
+    if not os.path.exists(readme_path):
+        readme = (
+            "AutoFlow 语言包目录\n"
+            "===================\n\n"
+            "此目录用于存放自定义语言包文件。\n\n"
+            "文件格式：JSON，文件名即语言代码，例如：\n"
+            "  ja_JP.json  → 日语\n"
+            "  ko_KR.json  → 韩语\n"
+            "  fr_FR.json  → 法语\n\n"
+            "JSON 结构示例：\n"
+            '{\n'
+            '  "_meta": { "name": "日本語", "version": "1.0" },\n'
+            '  "app.name": "AutoFlow",\n'
+            '  "settings.language.ja_JP": "日本語"\n'
+            '}\n\n'
+            "保存文件后重启 AutoFlow，新语言将出现在「设置 → 通用 → 语言」列表中。\n"
+        )
+        try:
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(readme)
+        except Exception:
+            pass
+
+    return lang_dir
+
+
+def _apply_startup_language():
+    """
+    在 QApplication 创建后、MainWindow 实例化前，提前从 app_config.json 读取语言设置
+    并从 Language 目录加载外部语言包，确保重启后语言切换真正生效。
+    """
+    _local = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+    cfg_path = os.path.join(_local, "XinyuCraft", "AutoFlow", "app_config.json")
+    lang = "zh_CN"
+    try:
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            lang = data.get("language", "zh_CN") or "zh_CN"
+    except Exception:
+        pass
+
+    from src.i18n import set_language, load_language_dir
+    # 确保 Language 目录存在并包含示例文件
+    lang_dir = _ensure_language_dir(_local)
+    # 加载外部语言包
+    load_language_dir(lang_dir)
+    set_language(lang)
+
+
+def main():
+    # ── 管理员权限检查（必须在 QApplication 创建之前）──
+    # AutoFlow 需要管理员权限才能向高权限程序注入鼠标/键盘操作（UIPI 机制）
+    _check_and_elevate()
+
+    # ── 单实例检测（防止重复开启）──
+    _ensure_single_instance()
+
+    # 高 DPI 支持
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("AutoFlow")
+    app.setApplicationVersion("1.0.0")
+    app.setOrganizationName("AutoFlow")
+
+    # ── 设置应用图标 ──
+    from PyQt6.QtGui import QIcon
+    _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "autoflow.ico")
+    if os.path.exists(_icon_path):
+        app.setWindowIcon(QIcon(_icon_path))
+    else:
+        # 回退到旧图标
+        _old_icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icon.ico")
+        if os.path.exists(_old_icon):
+            app.setWindowIcon(QIcon(_old_icon))
+
+    # ── 提前应用语言设置（必须在 MainWindow 构建 UI 之前）──
+    _apply_startup_language()
+
+    # ── 首次使用：显示免责声明 ──
+    if should_show_disclaimer():
+        dlg = DisclaimerDialog()
+        result = dlg.exec()
+        if not dlg.was_accepted():
+            # 用户不同意，退出程序
+            sys.exit(0)
+
+    # 解析命令行
+    start_minimized = "--minimized" in sys.argv
+    project_path    = None
+    for arg in sys.argv[1:]:
+        if not arg.startswith("--") and os.path.isfile(arg):
+            project_path = arg
+            break
+
+    # 默认项目路径迁移到 AppData\Local\XinyuCraft\AutoFlow\Project\
+    _local = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+    default_path = os.path.join(_local, "XinyuCraft", "AutoFlow", "Project", "autoflow_default.afp")
+    # 兼容旧版：若新路径不存在但旧路径存在，自动迁移
+    _old_default = os.path.join(os.path.expanduser("~"), "autoflow_default.afp")
+    if project_path is None:
+        if os.path.exists(default_path):
+            project_path = default_path
+        elif os.path.exists(_old_default):
+            project_path = _old_default
+
+    win = MainWindow(project_path=project_path, start_minimized=start_minimized)
+
+    if not start_minimized:
+        win.show()
+
+    # ── 首次使用：显示新手引导 ──
+    if should_show_tutorial():
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(300, lambda: _show_tutorial(win))
+
+    sys.exit(app.exec())
+
+
+def _show_tutorial(parent):
+    """在主窗口显示后展示新手引导"""
+    try:
+        dlg = TutorialDialog(parent)
+        dlg.exec()
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    main()

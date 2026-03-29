@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/*.exe
+build/
+*.spec.bak
+
+# PyInstaller build artifacts
+build/
+# dist/ 保留（发布时可能需要），但忽略大文件
+dist/*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 用户数据（敏感配置）
+app_config.json
+*.afp
+
+# 日志
+logs/
+*.log
+
+# 临时文件
+*.tmp
+*.bak
+~$*

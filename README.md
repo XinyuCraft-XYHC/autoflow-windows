@@ -1,0 +1,264 @@
+# ⚙ AutoFlow — Windows 智能自动化工具
+
+> **积木式编程 · 触发器驱动 · AI 加持 · 零编程基础**
+
+[![Version](https://img.shields.io/badge/version-v4.3.0-blue)](https://github.com/)
+[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)](https://github.com/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://github.com/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+AutoFlow 是一款面向 Windows 的图形化自动化工具，通过拖拽「功能块」搭建任务流程，配合丰富的触发器和 AI 能力，实现各种重复性操作的自动化——无需写代码。
+
+---
+
+## ✨ 主要特性
+
+- 🧱 **积木式编辑器** — 40+ 功能块，拖拽排序，支持多选、撤回/重做、操作历史
+- ⚡ **21 种触发器** — 定时、进程、窗口、文件、邮件、USB、网络、热键、鼠标、剪贴板、Ping延迟、开机完成等
+- 🤖 **AI 集成** — AI 对话、AI 生成文本、AI 智能生成功能块、AI 浏览器自动化
+- 🖥️ **屏幕识别** — 图片查找/点击/等待（pyautogui + OpenCV）
+- 🪟 **窗口控件操作** — 查找窗口、点击/输入/读取控件（pywinauto UIA）
+- 🌐 **浏览器自动化** — 6 个基础操作块 + AI 驱动的智能浏览器操作（browser-use）
+- 🖱️ **键鼠操作** — 移动/点击/滚轮/拖拽/模拟按键，拟人化曲线/抖动；键鼠宏录制回放
+- 🎨 **主题系统** — 深色×4 + 浅色×3 + 跟随系统，即时切换
+- 🌍 **多语言** — 简体中文 / 繁体中文 / English，即时刷新无需重启
+- 🔌 **插件生态** — 开放 Plugin API，支持第三方功能块扩展
+- 🔒 **自动 UAC 提权** — 启动时自动请求管理员权限，确保键鼠注入有效
+
+---
+
+## 🚀 快速启动
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 运行（需要管理员权限以支持键鼠操作）
+python main.py
+
+# 打包为独立 exe
+python build.py
+# 输出: dist/AutoFlow_v4.3.0.exe
+```
+
+> **注意**：屏幕识别功能需额外安装 `pip install pyautogui opencv-python`；  
+> 窗口控件操作需额外安装 `pip install pywinauto`；  
+> AI 浏览器自动化需额外安装 `pip install browser-use` 并运行 `playwright install chromium`（可在设置→AI 中一键安装）。
+
+---
+
+## 🧱 功能块一览（40+）
+
+<details>
+<summary>点击展开完整列表</summary>
+
+| 类别 | 功能块 | 说明 |
+|------|--------|------|
+| **流程控制** | 等待 | 等待指定秒数，支持变量 |
+| | 条件判断 (IF/ELIF/ELSE) | 支持 20+ 条件类型，扁平结构+缩进显示 |
+| | 循环 | 按次数/条件/无限循环 |
+| | 跳出循环 / 继续循环 | break / continue |
+| | 停止任务 | 终止整个任务 |
+| | 运行任务 | 触发另一个任务 |
+| | 功能块组 | 将多个块折叠为一组 |
+| **应用&进程** | 打开应用/文件 | 启动程序，支持注册表应用选择器 |
+| | 关闭窗口 | 支持标题/句柄/进程名，* 通配符 |
+| | 结束进程 | 强制结束进程（PID/进程名） |
+| | 等待窗口出现 | 超时可停止任务 |
+| | 等待进程出现 | 监测进程名出现 |
+| | 执行命令 | cmd/PowerShell，可保存输出，内置 AI 生成命令 |
+| **文件操作** | 复制/移动/删除文件 | 支持文件和目录 |
+| | 读取/写入文件 | 读写文件内容到变量 |
+| | 等待文件变化 | 监测创建/修改/删除 |
+| **键鼠操作** | 鼠标移动 | 支持像素坐标/屏幕百分比，拟人化曲线 |
+| | 鼠标点击 | 左/右/中键，自定义间隔，拟人化偏移/抖动 |
+| | 鼠标滚轮 | 上下滚动 |
+| | 鼠标拖拽 | 从A到B平滑拖拽 |
+| | 模拟按键 | 发送快捷键，如 `ctrl+c`、`win+d` |
+| | 键鼠宏 | 录制键鼠操作，相对坐标存储，速度倍率+重复次数 |
+| **变量** | 设置变量 | 字符串/数字/布尔/列表 |
+| | 计算变量 | 支持表达式 `{{count}}+1` |
+| | 显示变量值 | 输出到日志 |
+| **媒体控制** | 播放/暂停/上下首 | 模拟媒体键 |
+| | 设置音量 | 全局/指定进程/指定窗口 |
+| **通知&消息** | 发送通知 | Windows 系统通知 |
+| | 发送邮件 | SMTP 发送邮件 |
+| | 消息框 | 弹出对话框 |
+| | 写日志 | 记录到运行日志 |
+| **系统** | 关机/重启/睡眠 | 系统电源操作 |
+| | 截图 | 全屏或当前窗口 |
+| | 操作剪贴板 | 读取或写入剪贴板 |
+| | HTTP请求 | 调用 API，结果存变量 |
+| | 获取连接延迟 | Ping 主机，延迟存变量 |
+| **AI** | AI 对话 | 连续对话，历史记录，结果存变量 |
+| | AI 生成文本 | 根据提示词生成文本 |
+| | AI 浏览器自动化 | 自然语言驱动浏览器，实时进度 |
+| **屏幕识别** | 查找图片 | 屏幕上查找目标图片，坐标存变量 |
+| | 点击图片 | 查找并点击图片 |
+| | 等待图片出现 | 轮询等待，超时可停止 |
+| | 截图区域 | 截取指定屏幕区域 |
+| **浏览器操作** | 打开网址 | 用 Playwright 打开 URL |
+| | 点击元素 | 按选择器点击页面元素 |
+| | 输入文字 | 向输入框填入文字 |
+| | 获取文本 | 读取元素文本，存变量 |
+| | 页面截图 | 截取当前页面 |
+| | 等待元素 | 等待指定选择器出现 |
+| **窗口控件** | 查找窗口 | 句柄存变量，支持 * 通配 |
+| | 点击控件 | 点击窗口内指定控件 |
+| | 输入控件 | 向输入框输入文字 |
+| | 读取控件文本 | 读取控件内容，存变量 |
+| | 等待窗口 | 等待指定窗口出现 |
+| | 关闭窗口(控件) | 通过 pywinauto 关闭窗口 |
+
+</details>
+
+---
+
+## ⚡ 触发器一览（21 种）
+
+| 触发器 | 触发条件 |
+|--------|----------|
+| 手动运行 | 点击按钮 / 托盘菜单 |
+| 程序启动时 | AutoFlow 启动时自动执行 |
+| 开机完成 | 系统开机后延迟 N 秒触发 |
+| 定时执行 | 间隔/每天/每周/一次性 |
+| 进程启动/结束 | 指定进程名出现或消失 |
+| 窗口出现/关闭 | 指定标题窗口变化（支持 * 通配） |
+| 窗口失焦 | 指定窗口失去焦点时 |
+| 文件变化 | 监测文件/目录创建、修改、删除 |
+| 收到邮件 | IMAP 新邮件（可过滤发件人/主题） |
+| USB设备连接 | 新驱动器挂载 |
+| 网络状态变化 | 网络连通/断开 |
+| 热键触发 | 按下全局快捷键 |
+| 鼠标事件 | 鼠标按键/移动到指定区域 |
+| 剪贴板复制 | 检测到复制操作 |
+| 变量变化 | 指定变量值发生改变 |
+| Ping延迟 | 延迟超过/低于阈值或不可达 |
+
+---
+
+## 🤖 AI 功能
+
+- **AI 对话** / **AI 生成文本**：兼容 OpenAI / DeepSeek / Kimi / 智谱 GLM / 百度文心 / Claude / Gemini / Ollama 等
+- **AI 智能生成功能块**：工具栏点「✨ AI 生成」，自然语言描述任务，自动生成功能块序列
+- **AI 浏览器自动化**：自然语言描述目标，AI 自动操控浏览器完成任务，实时输出进度
+
+---
+
+## ⚙ 约束条件系统
+
+每个功能块和触发器均支持前置约束条件（AND 逻辑），仅当所有条件满足时才执行/触发：
+
+- 进程存在/不存在、窗口存在/不存在
+- 文件存在/已更改、时间区间、星期几
+- CPU / 内存 / 电池占用、是否充电
+- 大写锁定、剪贴板包含、网络已连接
+- Ping 延迟大于/小于
+
+---
+
+## 🌐 多语言 & 主题
+
+| 语言 | 主题 |
+|------|------|
+| 简体中文（默认） | 深色 × 4（默认、紫色、绿色、橙色） |
+| 繁体中文 | 浅色 × 3（浅灰、米白、蓝调） |
+| English | 跟随系统 |
+
+支持从 `%LOCALAPPDATA%\XinyuCraft\AutoFlow\Language\` 加载外部 JSON 语言包。
+
+---
+
+## 🔌 插件系统
+
+```
+plugins/
+└── my_plugin/
+    ├── plugin.json   # 插件元数据
+    └── __init__.py   # register(api) 函数，注册自定义功能块
+```
+
+内置示例插件：随机整数 / 文本处理 / HTTP GET JSON（`plugins/example_tools/`）。
+
+---
+
+## 📁 目录结构
+
+```
+autoflow/
+├── main.py              # 入口
+├── build.py             # PyInstaller 打包脚本
+├── AutoFlow.spec        # 打包配置
+├── requirements.txt     # 依赖清单
+├── src/
+│   ├── version.py           # 版本号
+│   ├── i18n.py              # 国际化
+│   ├── plugin_api.py        # 插件 API 接口
+│   ├── plugin_manager.py    # 插件管理器
+│   ├── engine/
+│   │   ├── models.py        # 数据模型（Task/Block/Trigger）
+│   │   ├── runner.py        # 任务执行引擎
+│   │   └── trigger_monitor.py  # 触发器监控
+│   └── ui/
+│       ├── main_window.py   # 主窗口
+│       ├── block_editor.py  # 功能块编辑器
+│       ├── trigger_editor.py# 触发器编辑器
+│       ├── task_editor.py   # 任务编辑页
+│       ├── settings_page.py # 设置页
+│       ├── constraint_editor.py # 约束条件编辑器
+│       ├── log_panel.py     # 日志面板
+│       ├── plugin_page.py   # 插件管理页
+│       ├── onboarding.py    # 新手引导
+│       ├── themes.py        # 主题/QSS
+│       ├── styles.py        # 样式辅助
+│       └── effects.py       # 动画效果
+├── plugins/             # 插件目录
+│   └── example_tools/   # 内置示例插件
+└── assets/              # 图标等资源
+```
+
+---
+
+## 💾 项目文件
+
+项目以 `.afp`（JSON 格式）保存，包含：
+- 所有任务及功能块流程
+- 触发器配置（含约束条件）
+- 任务分组
+- 全局变量
+
+默认路径：`%LOCALAPPDATA%\XinyuCraft\AutoFlow\`
+
+---
+
+## 📦 依赖
+
+```
+PyQt6
+psutil
+pywin32
+pycaw
+comtypes
+pynput
+pyautogui
+opencv-python
+Pillow
+pywinauto
+playwright        # 浏览器基础操作（可选）
+browser-use       # AI 浏览器自动化（可选）
+```
+
+---
+
+## 📜 开源致谢
+
+- [browser-use](https://github.com/browser-use/browser-use) — AI 浏览器自动化框架（MIT License）
+- [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) — GUI 框架
+- [pycaw](https://github.com/AndreMiras/pycaw) — Windows 音量控制
+- [pywinauto](https://github.com/pywinauto/pywinauto) — Windows GUI 自动化
+
+---
+
+## 📄 License
+
+MIT License © 2026 XinyuCraft
