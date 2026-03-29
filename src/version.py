@@ -368,8 +368,15 @@
 #       · dropEvent 支持多选整组移动；
 #       · 选中时蓝色边框+蓝色背景高亮（深/浅主题各异），_base_stylesheet 快速恢复。
 
-VERSION       = "4.3.0"
-VERSION_TUPLE = (4, 3, 0)
+# v4.3.1   2026-03-29
+#   【修复点击触发器任务闪退】
+#   - TriggerCard.__init__ 中 customContextMenuRequested.connect(self._show_context_menu)
+#     因方法定义头漏写，导致右键菜单代码被并入 mouseReleaseEvent，
+#     AttributeError: 'TriggerCard' object has no attribute '_show_context_menu'；
+#   - 修复：补上 def _show_context_menu(self, pos): 方法头，将右键菜单逻辑独立为正确方法。
+
+VERSION       = "4.3.1"
+VERSION_TUPLE = (4, 3, 1)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

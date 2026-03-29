@@ -116,6 +116,8 @@ class TriggerCard(QFrame):
         self._drag_start_pos = None
         self._dragged = False
         super().mouseReleaseEvent(event)
+
+    def _show_context_menu(self, pos):
         menu = QMenu(self)
         dark = is_theme_dark()
         menu.setStyleSheet(f"""

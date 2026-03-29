@@ -997,22 +997,33 @@ class MainWindow(QMainWindow):
             self._show_task_editor(task)
 
     def _show_task_editor(self, task: Task):
-        if task.id not in self._task_editors:
-            editor = TaskEditorPage(task)
-            editor.changed.connect(lambda: self._on_task_changed(task.id))
-            editor.run_task.connect(self._run_task)
-            editor.stop_task.connect(self._stop_task)
-            editor.run_single.connect(self._run_single_block)
-            editor.run_from.connect(self._run_from_block)
-            self._task_editors[task.id] = editor
-            self._stack.addWidget(editor)
+        try:
+            if task.id not in self._task_editors:
+                editor = TaskEditorPage(task)
+                editor.changed.connect(lambda: self._on_task_changed(task.id))
+                editor.run_task.connect(self._run_task)
+                editor.stop_task.connect(self._stop_task)
+                editor.run_single.connect(self._run_single_block)
+                editor.run_from.connect(self._run_from_block)
+                self._task_editors[task.id] = editor
+                self._stack.addWidget(editor)
 
-        # 把所有任务注入到 block_list（供 task_picker 控件使用）
-        editor = self._task_editors[task.id]
-        if hasattr(editor, '_block_list'):
-            editor._block_list.set_all_tasks(self._project.tasks)
+            # 把所有任务注入到 block_list（供 task_picker 控件使用）
+            editor = self._task_editors[task.id]
+            if hasattr(editor, '_block_list'):
+                editor._block_list.set_all_tasks(self._project.tasks)
 
-        self._stack.setCurrentWidget(self._task_editors[task.id])
+            self._stack.setCurrentWidget(self._task_editors[task.id])
+        except Exception as _e:
+            import traceback
+            from PyQt6.QtWidgets import QMessageBox as _MB
+            _MB.warning(
+                self,
+                "加载任务失败",
+                f"任务「{task.name}」加载时出错，请检查项目文件是否损坏。\n\n"
+                f"错误信息：{_e}\n\n"
+                f"{traceback.format_exc()}"
+            )
 
         self._task_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._task_list.customContextMenuRequested.connect(self._task_list_context_menu)

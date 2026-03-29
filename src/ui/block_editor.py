@@ -3170,7 +3170,24 @@ class BlockListWidget(QWidget):
 
     def _make_card(self, block: Block, idx: int, depth: int = 0,
                    collapsed: bool = False) -> QWidget:
-        card = BlockCard(block, depth=depth, collapsed=collapsed)
+        try:
+            card = BlockCard(block, depth=depth, collapsed=collapsed)
+        except Exception as _e:
+            import traceback
+            # 渲染失败时生成一个占位错误卡片，不影响其他功能块
+            err_card = QFrame()
+            err_card.setFixedHeight(52)
+            err_card.setStyleSheet(
+                "QFrame { background: #3d1515; border: 1px solid #f38ba8;"
+                "border-left: 4px solid #f38ba8; border-radius: 8px; margin: 2px 4px; }"
+            )
+            _lay = QHBoxLayout(err_card)
+            _lay.setContentsMargins(12, 4, 8, 4)
+            from PyQt6.QtWidgets import QLabel as _QL
+            _lbl = _QL(f"⚠ 功能块 [{block.block_type}] 渲染失败：{_e}")
+            _lbl.setStyleSheet("color: #f38ba8; font-size: 12px;")
+            _lay.addWidget(_lbl)
+            return err_card
         card.edit_requested.connect(lambda c: self._edit_block(c.block))
         card.delete_requested.connect(lambda c: self._delete_block(c.block))
         card.copy_requested.connect(lambda c: self._copy_block(c.block))
