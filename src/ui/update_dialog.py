@@ -25,30 +25,34 @@ from ..i18n import tr
 
 
 # ─── 下载源定义 ───────────────────────────────────────────────
-# 每个源: (display_name, url_template_or_direct_url)
-# url 中 {tag} 会被替换为版本号（如 v4.9.0），{filename} 被替换为 exe 文件名
+_GITHUB_OWNER = "XinyuCraft-XYHC"
+_GITHUB_REPO  = "autoflow-windows"
+
 def _build_sources(download_url: str, tag: str) -> list:
-    """根据直链 download_url 构建可用源列表"""
+    """
+    构建可用下载源列表。
+    优先使用 API 返回的 download_url（browser_download_url），
+    若为空则按 GitHub Release 资产的固定 URL 规律拼接，确保始终能生成至少一个源。
+    """
     filename = f"AutoFlow_{tag}_Setup.exe"
-    sources = []
 
-    # GitHub 直链（原始）
-    if download_url:
-        sources.append(("GitHub Release（官方）", download_url))
+    # GitHub Release 资产直链：API 有就用，没有就按固定规律拼
+    gh_direct = download_url or (
+        f"https://github.com/{_GITHUB_OWNER}/{_GITHUB_REPO}"
+        f"/releases/download/{tag}/{filename}"
+    )
 
-    # GitHub Proxy 镜像（ghproxy.net，国内常用）
-    if download_url:
-        sources.append((
-            "GitHub Proxy 镜像（国内加速）",
-            f"https://ghproxy.net/{download_url}"
-        ))
-
-    # GitHub Proxy 另一个镜像
-    if download_url:
-        sources.append((
-            "GitClone 镜像（国内加速）",
-            f"https://gitclone.com/github.com/XinyuCraft-XYHC/autoflow-windows/releases/download/{tag}/{filename}"
-        ))
+    sources = [
+        # ① GitHub 官方直链
+        ("GitHub Release（官方）", gh_direct),
+        # ② ghproxy.net 国内加速镜像
+        ("GitHub Proxy 镜像（国内加速）",
+         f"https://ghproxy.net/{gh_direct}"),
+        # ③ gitclone.com 镜像
+        ("GitClone 镜像（国内加速）",
+         f"https://gitclone.com/github.com/{_GITHUB_OWNER}/{_GITHUB_REPO}"
+         f"/releases/download/{tag}/{filename}"),
+    ]
 
     return sources
 
@@ -289,13 +293,14 @@ class UpdateDialog(QDialog):
 
         tag = self._result.get("latest_tag", "")
         dl_url = self._result.get("download_url", "")
-        sources = _build_sources(dl_url, tag)
 
-        if not sources:
+        if not tag:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, tr("update.dl_error", default="下载失败"),
-                                "未找到可用的下载链接，请前往下载页手动下载。")
+                                "未获取到版本信息，无法自动下载，请前往下载页手动下载。")
             return
+
+        sources = _build_sources(dl_url, tag)
 
         # 展示下载区
         self._dl_widget.setVisible(True)

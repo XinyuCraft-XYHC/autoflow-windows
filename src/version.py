@@ -491,9 +491,16 @@
 #   - 修复 Gitee 镜像仓库 private=true 导致 403 Forbidden；
 #   - autoflow-plugins 仓库新增 README.md 介绍及贡献指南；
 #   - 更新 docs/plugin-dev-guide.md 插件制作指南，补充插件市场发布流程；
+#
+# v4.11.2  2026-03-30
+#   【修复自动下载安装「未找到可用下载链接」】
+#   - 修复 update_dialog._build_sources：当 GitHub API 未返回 assets（download_url=None）时，
+#     按固定 URL 规律（/releases/download/{tag}/{filename}）拼接直链，确保三个下载源始终可用；
+#   - 原逻辑所有源都依赖 download_url 非空，导致 Gitee 备用 API 返回的 Release 缺少 assets
+#     时 sources 列表为空，直接弹"未找到可用下载链接"弹窗；
 
-VERSION       = "4.11.1"
-VERSION_TUPLE = (4, 11, 1)
+VERSION       = "4.11.2"
+VERSION_TUPLE = (4, 11, 2)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
