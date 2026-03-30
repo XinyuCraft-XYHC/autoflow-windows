@@ -650,7 +650,7 @@ class ProcessWindowListDialog(QDialog):
                     pass
 
         if self._mode in ("window", "both"):
-            EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.LPARAM)
+            EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
             wins = []
             def _cb(hwnd, _):
                 if not ctypes.windll.user32.IsWindowVisible(hwnd):
@@ -786,7 +786,7 @@ class WindowClassListDialog(QDialog):
     def _refresh(self):
         import ctypes, ctypes.wintypes
         user32 = ctypes.windll.user32
-        EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.LPARAM)
+        EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
         wins = []
 
         def _cb(hwnd, _):
@@ -2051,6 +2051,21 @@ class BlockCard(QFrame):
             img = p.get("image_path", "")
             timeout = p.get("timeout", 30)
             name = os.path.basename(img) if img else "未选择图片"
+        # ── 窗口图片识别 ──
+        elif bt == "win_find_image":
+            img = p.get("image_path", "")
+            win = p.get("window_title", "")
+            conf = p.get("confidence", 0.8)
+            name = os.path.basename(img) if img else "未选择图片"
+            parts.append(f"{win or '未指定窗口'} → {name}  精度={conf}")
+        elif bt == "win_click_image":
+            img = p.get("image_path", "")
+            win = p.get("window_title", "")
+            conf = p.get("confidence", 0.8)
+            btn = p.get("button", "left")
+            btn_map = {"left": "左键", "right": "右键", "middle": "中键"}
+            name = os.path.basename(img) if img else "未选择图片"
+            parts.append(f"{win or '未指定窗口'} → {name}  {btn_map.get(btn, btn)}  精度={conf}")
             parts.append(f"{name}  超时={timeout}s")
         elif bt == "screen_screenshot_region":
             region = p.get("region", "")
@@ -2376,9 +2391,11 @@ class BlockEditDialog(QDialog):
             hl.setContentsMargins(0,0,0,0); hl.setSpacing(4)
             edit = QLineEdit(str(default)); edit.setObjectName(f"_edit_{key}")
             
-            # 为屏幕识别功能块的图片路径添加截图功能
-            is_screen_image_param = (self.block.block_type in ["screen_find_image", "screen_click_image", "screen_wait_image"] 
-                                     and key == "image_path")
+            # 为屏幕/窗口图片识别功能块的图片路径添加截图功能
+            is_screen_image_param = (self.block.block_type in [
+                "screen_find_image", "screen_click_image", "screen_wait_image",
+                "win_find_image", "win_click_image"
+            ] and key == "image_path")
             
             if is_screen_image_param:
                 # 添加截图按钮
@@ -2714,7 +2731,7 @@ class BlockEditDialog(QDialog):
         方案2：PIL + pytesseract（备用）。
         返回识别出的文字；失败返回空字符串。
         """
-        import io, os, tempfile, subprocess
+        import io, os, sys, tempfile, subprocess
         from PyQt6.QtCore import QBuffer, QByteArray
 
         # 将 QPixmap 保存为临时 PNG
@@ -2733,35 +2750,126 @@ class BlockEditDialog(QDialog):
             with open(tmp_img, "wb") as f:
                 f.write(png_bytes)
 
-            # ── 方案1：PowerShell + Windows.Media.OCR ──
+            # ── 方案1：Python 子进程 + Windows.Media.OCR (winsdk / winrt) ──
+            py_script = r"""
+import sys, os
+img_path = sys.argv[1]
+try:
+    # 优先用 winsdk (pip install winsdk)
+    import asyncio, winsdk.windows.media.ocr as ocr_mod
+    import winsdk.windows.storage as ws
+    import winsdk.windows.graphics.imaging as wgi
+
+    async def do_ocr():
+        sf = await ws.StorageFile.get_file_from_path_async(img_path)
+        stream = await sf.open_read_async()
+        dec = await wgi.BitmapDecoder.create_async(stream)
+        bmp = await dec.get_software_bitmap_async()
+        eng = ocr_mod.OcrEngine.try_create_from_user_profile_languages()
+        if eng is None:
+            lang = winsdk.windows.globalization.Language("zh-Hans")
+            eng = ocr_mod.OcrEngine.try_create_from_language(lang)
+        if eng is None:
+            print("")
+            return
+        result = await eng.recognize_async(bmp)
+        print(result.text)
+
+    asyncio.run(do_ocr())
+except Exception:
+    # 备用：winrt (pip install winrt-Windows.Media.Ocr)
+    try:
+        import asyncio
+        from winrt.windows.media.ocr import OcrEngine
+        from winrt.windows.storage import StorageFile
+        from winrt.windows.graphics.imaging import BitmapDecoder
+
+        async def do_ocr2():
+            sf = await StorageFile.get_file_from_path_async(img_path)
+            stream = await sf.open_read_async()
+            dec = await BitmapDecoder.create_async(stream)
+            bmp = await dec.get_software_bitmap_async()
+            eng = OcrEngine.try_create_from_user_profile_languages()
+            if eng is None:
+                print("")
+                return
+            result = await eng.recognize_async(bmp)
+            print(result.text)
+
+        asyncio.run(do_ocr2())
+    except Exception:
+        print("")
+"""
+            try:
+                fd2, tmp_py = tempfile.mkstemp(suffix=".py")
+                os.close(fd2)
+                with open(tmp_py, "w", encoding="utf-8") as f:
+                    f.write(py_script)
+                try:
+                    result_py = subprocess.run(
+                        [sys.executable, tmp_py, tmp_img],
+                        capture_output=True, text=True, timeout=20,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    text = (result_py.stdout or "").strip()
+                    if text:
+                        return text
+                finally:
+                    try:
+                        os.unlink(tmp_py)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # ── 方案2：PowerShell + Windows.Media.OCR（兼容旧系统）──
             ps_script = r"""
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
+
+public class WinRtHelper {
+    public static T Await<T>(Windows.Foundation.IAsyncOperation<T> op) {
+        return op.AsTask().GetAwaiter().GetResult();
+    }
+}
+"@ -ReferencedAssemblies @(
+    'System.Runtime.WindowsRuntime',
+    'C:\Windows\System32\WinMetadata\Windows.winmd'
+) -ErrorAction SilentlyContinue
+
 $imgPath = 'IMG_PATH'
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 [void][Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
 [void][Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
 [void][Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation,ContentType=WindowsRuntime]
 
-function Await-Task($WinRtTask) {
-    $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
-        Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 } |
-        Select-Object -First 1)
-    $netTask = $asTask.MakeGenericMethod($WinRtTask.GetType().GetGenericArguments()[0]).Invoke($null, @($WinRtTask))
-    $netTask.Wait() | Out-Null
+function Await-WinRt {
+    param($task)
+    $ext = [System.WindowsRuntimeSystemExtensions]
+    $methods = $ext.GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 }
+    $m = $methods | Select-Object -First 1
+    if (-not $m) { throw "No AsTask method found" }
+    $tArg = $task.GetType().GetGenericArguments()[0]
+    $netTask = $m.MakeGenericMethod($tArg).Invoke($null, @($task))
+    $netTask.Wait(15000) | Out-Null
     return $netTask.Result
 }
 
 try {
-    $sf      = Await-Task ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath))
-    $stream  = Await-Task ($sf.OpenReadAsync())
-    $dec     = Await-Task ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream))
-    $bmp     = Await-Task ($dec.GetSoftwareBitmapAsync())
-    $eng     = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    $sf   = Await-WinRt ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath))
+    $stream = Await-WinRt ($sf.OpenReadAsync())
+    $dec  = Await-WinRt ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream))
+    $bmp  = Await-WinRt ($dec.GetSoftwareBitmapAsync())
+    $eng  = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
     if (-not $eng) {
         $lang = [Windows.Globalization.Language]::new('zh-Hans')
-        $eng  = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
+        $eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
     }
-    if (-not $eng) { Write-Output ''; exit }
-    $res = Await-Task ($eng.RecognizeAsync($bmp))
+    if (-not $eng) { Write-Output ''; exit 0 }
+    $res = Await-WinRt ($eng.RecognizeAsync($bmp))
     Write-Output $res.Text
 } catch {
     Write-Output ''
@@ -2769,19 +2877,18 @@ try {
 """.replace("IMG_PATH", tmp_img.replace("\\", "\\\\"))
 
             try:
-                # 将脚本写入临时 .ps1 文件，用 -File 执行（避免 -Command 多行截断/编码问题）
-                fd2, tmp_ps1 = tempfile.mkstemp(suffix=".ps1")
-                os.close(fd2)
+                fd3, tmp_ps1 = tempfile.mkstemp(suffix=".ps1")
+                os.close(fd3)
                 with open(tmp_ps1, "w", encoding="utf-8") as f:
                     f.write(ps_script)
                 try:
-                    result = subprocess.run(
+                    result_ps = subprocess.run(
                         ["powershell", "-NoProfile", "-NonInteractive",
                          "-ExecutionPolicy", "Bypass", "-File", tmp_ps1],
                         capture_output=True, text=True, timeout=25,
                         creationflags=subprocess.CREATE_NO_WINDOW
                     )
-                    text = (result.stdout or "").strip()
+                    text = (result_ps.stdout or "").strip()
                     if text:
                         return text
                 finally:
@@ -3077,6 +3184,18 @@ try {
             if done_event.is_set():
                 tip.hide()
                 tip.deleteLater()
+                # 恢复主窗口和对话框到前台
+                try:
+                    main_win = self
+                    while main_win.parent():
+                        main_win = main_win.parent()
+                    main_win.showNormal()
+                    main_win.activateWindow()
+                    main_win.raise_()
+                    self.activateWindow()
+                    self.raise_()
+                except Exception:
+                    pass
                 if result["ok"] and result["title"] is not None:
                     edit.setText(result["title"])
                     # 所有窗口控件功能块都支持自动回填 class_name 和 process_name
@@ -3453,9 +3572,17 @@ try {
             if done_evt.is_set():
                 tip.hide()
                 tip.deleteLater()
+                # 无论是否最小化，都要把主窗口和对话框恢复到前台
                 if _minimized:
                     main_win.showNormal()
-                    main_win.activateWindow()
+                main_win.activateWindow()
+                main_win.raise_()
+                # 把 BlockEditDialog（self）也激活到最前面
+                try:
+                    self.activateWindow()
+                    self.raise_()
+                except Exception:
+                    pass
                 if result["ok"]:
                     ox = result["ox"]
                     oy = result["oy"]

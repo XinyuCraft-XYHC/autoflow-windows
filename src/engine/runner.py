@@ -1027,6 +1027,36 @@ class TaskRunner(threading.Thread):
             timeout_wo   = float(resolve_number(p.get("timeout", 5), self.variables))
             self._win_click_offset(win_title, class_name, process_name, offset_x, offset_y, button, clicks, move_first, timeout_wo)
 
+        elif bt == "win_find_image":
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            img_path     = resolve_value(p.get("image_path", ""), self.variables).strip()
+            confidence   = float(resolve_number(p.get("confidence", 0.8), self.variables))
+            timeout_wfi  = float(resolve_number(p.get("timeout", 5), self.variables))
+            save_x       = p.get("save_x", "")
+            save_y       = p.get("save_y", "")
+            on_not_found = p.get("on_not_found", "continue")
+            found = self._win_find_image(win_title, class_name, process_name, img_path, confidence, timeout_wfi, save_x, save_y)
+            if not found and on_not_found == "stop_task":
+                raise StopTaskException()
+
+        elif bt == "win_click_image":
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            img_path     = resolve_value(p.get("image_path", ""), self.variables).strip()
+            confidence   = float(resolve_number(p.get("confidence", 0.8), self.variables))
+            button       = p.get("button", "left")
+            clicks       = int(resolve_number(p.get("clicks", 1), self.variables))
+            offset_x     = int(resolve_number(p.get("offset_x", 0), self.variables))
+            offset_y     = int(resolve_number(p.get("offset_y", 0), self.variables))
+            timeout_wci  = float(resolve_number(p.get("timeout", 5), self.variables))
+            on_not_found = p.get("on_not_found", "continue")
+            found = self._win_click_image(win_title, class_name, process_name, img_path, confidence, button, clicks, offset_x, offset_y, timeout_wci)
+            if not found and on_not_found == "stop_task":
+                raise StopTaskException()
+
         else:
             # ── 尝试插件功能块 ──
             try:
@@ -1721,6 +1751,167 @@ class TaskRunner(threading.Thread):
             self._log("INFO", "    [win_click_offset] 点击完成")
         except Exception as e:
             self._log("ERROR", f"    [win_click_offset] 失败: {e}")
+
+    def _win_capture_client(self, hwnd: int):
+        """对指定窗口截图（客户区），返回 numpy 图像（BGR）。"""
+        import ctypes
+        import ctypes.wintypes
+        import numpy as np
+        user32 = ctypes.windll.user32
+        gdi32  = ctypes.windll.gdi32
+
+        # 获取窗口客户区尺寸
+        rect = ctypes.wintypes.RECT()
+        user32.GetClientRect(hwnd, ctypes.byref(rect))
+        w = rect.right  - rect.left
+        h = rect.bottom - rect.top
+        if w <= 0 or h <= 0:
+            # 回退：用窗口区域
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            w = rect.right  - rect.left
+            h = rect.bottom - rect.top
+
+        # BitBlt 截图
+        hdc_win = user32.GetDC(hwnd)
+        hdc_mem = gdi32.CreateCompatibleDC(hdc_win)
+
+        class BITMAPINFOHEADER(ctypes.Structure):
+            _fields_ = [
+                ("biSize",          ctypes.c_uint32),
+                ("biWidth",         ctypes.c_int32),
+                ("biHeight",        ctypes.c_int32),
+                ("biPlanes",        ctypes.c_uint16),
+                ("biBitCount",      ctypes.c_uint16),
+                ("biCompression",   ctypes.c_uint32),
+                ("biSizeImage",     ctypes.c_uint32),
+                ("biXPelsPerMeter", ctypes.c_int32),
+                ("biYPelsPerMeter", ctypes.c_int32),
+                ("biClrUsed",       ctypes.c_uint32),
+                ("biClrImportant",  ctypes.c_uint32),
+            ]
+
+        bmi = BITMAPINFOHEADER()
+        bmi.biSize        = ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.biWidth       = w
+        bmi.biHeight      = -h   # 负值 = 从上到下
+        bmi.biPlanes      = 1
+        bmi.biBitCount    = 32
+        bmi.biCompression = 0
+
+        buf = (ctypes.c_byte * (w * h * 4))()
+        hbm = gdi32.CreateDIBSection(hdc_mem, ctypes.byref(bmi), 0, None, None, 0)
+        gdi32.SelectObject(hdc_mem, hbm)
+        gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_win, 0, 0, 0x00CC0020)  # SRCCOPY
+        gdi32.GetDIBits(hdc_mem, hbm, 0, h, buf, ctypes.byref(bmi), 0)
+
+        gdi32.DeleteObject(hbm)
+        gdi32.DeleteDC(hdc_mem)
+        user32.ReleaseDC(hwnd, hdc_win)
+
+        img = np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 4)
+        return img[:, :, :3].copy()  # BGR（去掉 alpha）
+
+    def _win_find_image(self, win_title: str, class_name: str, process_name: str,
+                        img_path: str, confidence: float, timeout: float,
+                        save_x: str, save_y: str) -> bool:
+        """
+        窗口查找图片：对指定窗口截图，在截图中查找目标图片（不依赖屏幕坐标）。
+        坐标结果为相对窗口客户区的像素坐标，存入变量。
+        """
+        if not win_title and not class_name and not process_name:
+            self._log("WARN", "    [win_find_image] 未填写任何窗口识别条件，跳过")
+            return False
+        if not img_path:
+            self._log("WARN", "    [win_find_image] 未填写图片路径，跳过")
+            return False
+        try:
+            import cv2
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                if save_x: self.variables[save_x] = ""
+                if save_y: self.variables[save_y] = ""
+                return False
+
+            self._log("INFO", f"    [win_find_image] 对窗口截图并查找: {img_path}（精度={confidence}）")
+            screenshot = self._win_capture_client(hwnd)
+            needle     = self._load_cv2_image(img_path)
+
+            # 用 matchTemplate 查找
+            result = cv2.matchTemplate(screenshot, needle, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+            if max_val < confidence:
+                self._log("WARN", f"    [win_find_image] 未找到目标图片（最大匹配度={max_val:.3f} < {confidence}）")
+                if save_x: self.variables[save_x] = ""
+                if save_y: self.variables[save_y] = ""
+                return False
+
+            # 中心坐标（相对窗口客户区）
+            nh, nw = needle.shape[:2]
+            cx = max_loc[0] + nw // 2
+            cy = max_loc[1] + nh // 2
+            if save_x: self.variables[save_x] = cx
+            if save_y: self.variables[save_y] = cy
+            self._log("INFO", f"    [win_find_image] 找到！窗口内坐标=({cx},{cy})  匹配度={max_val:.3f}")
+            return True
+        except ImportError:
+            self._log("ERROR", "    [win_find_image] 依赖未安装，请运行：pip install opencv-python")
+            return False
+        except Exception as e:
+            self._log("ERROR", f"    [win_find_image] 失败: {e}")
+            return False
+
+    def _win_click_image(self, win_title: str, class_name: str, process_name: str,
+                         img_path: str, confidence: float, button: str, clicks: int,
+                         offset_x: int, offset_y: int, timeout: float) -> bool:
+        """
+        窗口点击图片：对指定窗口截图查找图片，将匹配中心换算成屏幕坐标后点击。
+        即使窗口不在屏幕最前面也能获取截图（后台操作）。
+        """
+        if not win_title and not class_name and not process_name:
+            self._log("WARN", "    [win_click_image] 未填写任何窗口识别条件，跳过")
+            return False
+        if not img_path:
+            self._log("WARN", "    [win_click_image] 未填写图片路径，跳过")
+            return False
+        try:
+            import cv2
+            import ctypes, ctypes.wintypes
+            user32 = ctypes.windll.user32
+
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                return False
+
+            self._log("INFO", f"    [win_click_image] 对窗口截图并查找: {img_path}（精度={confidence}）")
+            screenshot = self._win_capture_client(hwnd)
+            needle     = self._load_cv2_image(img_path)
+
+            result = cv2.matchTemplate(screenshot, needle, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+            if max_val < confidence:
+                self._log("WARN", f"    [win_click_image] 未找到目标图片（最大匹配度={max_val:.3f} < {confidence}）")
+                return False
+
+            nh, nw = needle.shape[:2]
+            rel_x = max_loc[0] + nw // 2
+            rel_y = max_loc[1] + nh // 2
+
+            # 换算为屏幕坐标（客户区坐标 → 屏幕坐标）
+            pt = ctypes.wintypes.POINT(rel_x, rel_y)
+            user32.ClientToScreen(hwnd, ctypes.byref(pt))
+            target_x = pt.x + offset_x
+            target_y = pt.y + offset_y
+
+            self._log("INFO", f"    [win_click_image] 找到！匹配度={max_val:.3f} 点击=({target_x},{target_y})")
+            self._mouse_click_pos(target_x, target_y, button, clicks, True)
+            self._log("INFO", "    [win_click_image] 点击完成")
+            return True
+        except ImportError:
+            self._log("ERROR", "    [win_click_image] 依赖未安装，请运行：pip install opencv-python")
+            return False
+        except Exception as e:
+            self._log("ERROR", f"    [win_click_image] 失败: {e}")
+            return False
 
 
 
