@@ -484,9 +484,16 @@
 #   - 新增「软件启动后」设置项（设置→通用→开机自启分组）：
 #     支持「打开主界面」/「最小化至任务栏」/「隐藏至托盘」三种模式，
 #     默认「打开主界面」；--minimized 命令行参数优先级高于该设置；
+#
+# v4.11.1  2026-03-30
+#   【市场连接彻底修复 + 插件仓库 README】
+#   - 修复市场所有备用源 URL 分支名 main -> master（与实际分支一致）；
+#   - 修复 Gitee 镜像仓库 private=true 导致 403 Forbidden；
+#   - autoflow-plugins 仓库新增 README.md 介绍及贡献指南；
+#   - 更新 docs/plugin-dev-guide.md 插件制作指南，补充插件市场发布流程；
 
-VERSION       = "4.11.0"
-VERSION_TUPLE = (4, 11, 0)
+VERSION       = "4.11.1"
+VERSION_TUPLE = (4, 11, 1)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
