@@ -448,8 +448,13 @@
 #     - 触发器/功能块选中互斥：双方各加 selection_changed 信号 + clear_selection() 方法，
 #       TaskEditorPage 连接 _on_trigger_selection_changed / _on_block_selection_changed 互斥；
 
-VERSION       = "4.6.0"
-VERSION_TUPLE = (4, 6, 0)
+# v4.6.1   2026-03-30
+#   【插件开发文档 + GitHub Release 修复】
+#   - 新增 docs/plugin-dev-guide.md：完整插件开发指南（快速开始/目录结构/功能块/触发器/
+#     API 参考/示例代码/调试/发布）；修复插件管理页「如何开发插件」链接 404 问题；
+
+VERSION       = "4.6.1"
+VERSION_TUPLE = (4, 6, 1)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
