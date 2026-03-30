@@ -535,8 +535,18 @@
 #   - 新增搜索区域框选功能（_select_region 方法，填入 x,y,w,h 到文本框）；
 #   - 邮箱设置新增 12 个热门邮箱预设（QQ/163/Gmail/Outlook 等）；
 
-VERSION       = "4.14.0"
-VERSION_TUPLE = (4, 14, 0)
+# v4.15.0  2026-03-30
+#   【闪退修复 + OCR 修复】
+#   - 修复窗口控件功能块（win_click_control/win_input_control/win_get_control_text 等）点「确定」闪退：
+#     _get_widget_value 中 window_picker 类型未兼容 QWidget 容器（AttributeError: 'QWidget' has no 'text'）；
+#     改为先判断 isinstance(WindowPickerEdit) → findChild(WindowPickerEdit) → findChild(QLineEdit) 三级兜底；
+#   - 修复文字识别（screen_ocr / 选控件）始终提示"未识别到文字"：
+#     原子进程脚本使用 winsdk API（未安装），实际应使用 winrt-Windows.Media.Ocr 包（已安装）；
+#     重写 _ocr_pixmap 子进程脚本，直接使用 winrt.windows.media.ocr 新版 API；
+#   - 清理 _ocr_pixmap 重复的 @staticmethod 装饰器；
+
+VERSION       = "4.15.0"
+VERSION_TUPLE = (4, 15, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
