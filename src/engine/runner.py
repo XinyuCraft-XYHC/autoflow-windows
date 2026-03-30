@@ -1436,6 +1436,66 @@ class TaskRunner(threading.Thread):
         except Exception as e:
             self._log("ERROR", f"    [win_find_window] 失败: {e}")
 
+    def _find_control_wrapper(self, win_title: str, class_name: str, process_name: str,
+                              ctrl_title: str, ctrl_type: str, timeout: float):
+        """
+        在目标进程的所有顶层窗口中搜索指定控件，返回 (wrapper, dlg) 或 (None, None)。
+        策略：先定位目标窗口 hwnd，然后连接整个进程，遍历所有窗口查找控件。
+        这样可以正确处理微信等多窗口应用弹出子对话框的场景。
+        """
+        from pywinauto import Application
+        import ctypes, ctypes.wintypes, re as _re, psutil as _ps
+
+        hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+        if not hwnd:
+            return None, None
+
+        # 获取目标窗口所属进程 PID
+        pid_val = ctypes.wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_val))
+        pid = pid_val.value
+
+        app = Application(backend="uia").connect(process=pid)
+
+        # 构造 child_window 搜索参数
+        ctrl_kw = {}
+        if ctrl_type and ctrl_type != "any":
+            ctrl_kw["control_type"] = ctrl_type
+        if ctrl_title:
+            ctrl_kw["title"] = ctrl_title
+
+        # 遍历该进程所有顶层窗口，找到包含目标控件的窗口
+        title_re = _make_title_re(win_title) if win_title else None
+        pattern = _re.compile(title_re, _re.IGNORECASE) if title_re else None
+
+        windows = app.windows()
+        # 优先尝试与 hwnd 对应的窗口，再尝试其他窗口
+        def _hwnd_key(w):
+            try:
+                return 0 if w.handle == hwnd else 1
+            except Exception:
+                return 1
+        windows = sorted(windows, key=_hwnd_key)
+
+        for w in windows:
+            # 标题过滤：若指定了窗口标题则检查
+            if pattern:
+                try:
+                    if not pattern.search(w.window_text()):
+                        continue
+                except Exception:
+                    continue
+            try:
+                if ctrl_kw:
+                    ctrl = w.child_window(**ctrl_kw)
+                    ctrl.wrapper_object()  # 触发真正查找，不存在则抛异常
+                    return ctrl, w
+                else:
+                    return w, w
+            except Exception:
+                continue
+        return None, None
+
     def _win_click_control(self, win_title: str, class_name: str, process_name: str,
                            ctrl_title: str, ctrl_type: str,
                            double_click: bool, timeout: float):
@@ -1445,19 +1505,11 @@ class TaskRunner(threading.Thread):
         try:
             from pywinauto import Application
             self._log("INFO", f"    [win_click_control] 窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 控件={ctrl_title!r}")
-            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
-            if not hwnd:
-                self._log("WARN", f"    [win_click_control] 超时未找到目标窗口")
+            ctrl, _dlg = self._find_control_wrapper(win_title, class_name, process_name,
+                                                    ctrl_title, ctrl_type, timeout)
+            if ctrl is None:
+                self._log("WARN", "    [win_click_control] 超时未找到目标控件")
                 return
-            app = Application(backend="uia").connect(handle=hwnd)
-            dlg = app.top_window()
-            if ctrl_type == "any" or not ctrl_type:
-                ctrl_kw = {}
-            else:
-                ctrl_kw = {"control_type": ctrl_type}
-            if ctrl_title:
-                ctrl_kw["title"] = ctrl_title
-            ctrl = dlg.child_window(**ctrl_kw)
             if double_click:
                 ctrl.double_click_input()
                 self._log("INFO", "    [win_click_control] 双击完成")
@@ -1478,19 +1530,14 @@ class TaskRunner(threading.Thread):
         try:
             from pywinauto import Application
             self._log("INFO", f"    [win_input_control] 窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 输入={text[:30]!r}…")
-            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
-            if not hwnd:
-                self._log("WARN", f"    [win_input_control] 超时未找到目标窗口")
+            ctrl, _dlg = self._find_control_wrapper(win_title, class_name, process_name,
+                                                    ctrl_title, "Edit", timeout)
+            if ctrl is None:
+                self._log("WARN", "    [win_input_control] 超时未找到目标输入框")
                 return
-            app = Application(backend="uia").connect(handle=hwnd)
-            dlg = app.top_window()
-            if ctrl_title:
-                edit = dlg.child_window(title=ctrl_title, control_type="Edit")
-            else:
-                edit = dlg.child_window(control_type="Edit")
             if clear_first:
-                edit.set_text("")
-            edit.type_keys(text, with_spaces=True)
+                ctrl.set_text("")
+            ctrl.type_keys(text, with_spaces=True)
             self._log("INFO", "    [win_input_control] 输入完成")
         except ImportError:
             self._log("ERROR", "    [win_input_control] 依赖未安装，请运行：pip install pywinauto")
@@ -1506,24 +1553,19 @@ class TaskRunner(threading.Thread):
         try:
             from pywinauto import Application
             self._log("INFO", f"    [win_get_control_text] 窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 控件={ctrl_title!r}")
-            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
-            if not hwnd:
-                self._log("WARN", f"    [win_get_control_text] 超时未找到目标窗口")
+            ctrl, dlg = self._find_control_wrapper(win_title, class_name, process_name,
+                                                   ctrl_title, ctrl_type, timeout)
+            if ctrl is None:
+                self._log("WARN", "    [win_get_control_text] 超时未找到目标控件")
+                if save_to:
+                    self.variables[save_to] = ""
                 return
-            app = Application(backend="uia").connect(handle=hwnd)
-            dlg = app.top_window()
             if ctrl_title or (ctrl_type and ctrl_type != "any"):
-                ctrl_kw = {}
-                if ctrl_title:
-                    ctrl_kw["title"] = ctrl_title
-                if ctrl_type and ctrl_type != "any":
-                    ctrl_kw["control_type"] = ctrl_type
-                ctrl = dlg.child_window(**ctrl_kw)
-                text = ctrl.window_text()
+                result_text = ctrl.window_text()
             else:
-                text = dlg.window_text()
-            self.variables[save_to] = text
-            self._log("INFO", f"    [win_get_control_text] 获取文本({len(text)}字符) → {save_to}")
+                result_text = dlg.window_text() if dlg else ""
+            self.variables[save_to] = result_text
+            self._log("INFO", f"    [win_get_control_text] 获取文本({len(result_text)}字符) → {save_to}")
         except ImportError:
             self._log("ERROR", "    [win_get_control_text] 依赖未安装，请运行：pip install pywinauto")
         except Exception as e:

@@ -549,6 +549,11 @@
 #        框选坐标(sel)与拼合图坐标系完全一致，裁剪直接使用 sel 坐标，无需 DPR 换算；
 #        裁剪后放大 2 倍再传入 OCR 引擎，提升低分辨率选区的识别成功率；
 #   - 清理 _ocr_pixmap 重复的 @staticmethod 装饰器；
+#   - 修复 win_click_control/win_input_control/win_get_control_text 对微信等多窗口应用失败：
+#     原逻辑 connect(handle=hwnd) + top_window() 在多窗口进程中拿到错误的窗口；
+#     新增 _find_control_wrapper：先定位 hwnd 获取 PID，再 connect(process=pid) 连接整个进程，
+#     遍历所有顶层窗口逐一用 child_window(**ctrl_kw).wrapper_object() 尝试找控件；
+#     优先检查与 hwnd 对应的窗口，对弹出子对话框（类名不稳定）也能正确定位；
 
 VERSION       = "4.15.0"
 VERSION_TUPLE = (4, 15, 0)
