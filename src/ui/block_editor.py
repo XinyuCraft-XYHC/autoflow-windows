@@ -3205,30 +3205,31 @@ class BlockEditDialog(QDialog):
         main_win.showMinimized()
 
         app = QApplication.instance()
-        dpr = app.primaryScreen().devicePixelRatio()
 
         # ── 4. 延时后开始框选 ──
         def _do_select():
-            # 全屏截图
+            # 全屏截图：以逻辑像素为单位拼合，避免多屏 DPR 不一致导致坐标错位
             screens = app.screens()
             total_rect = QRect()
             for s in screens:
                 total_rect = total_rect.united(s.geometry())
 
-            canvas_w = int(total_rect.width()  * dpr)
-            canvas_h = int(total_rect.height() * dpr)
-            full_pm = QPixmap(canvas_w, canvas_h)
+            # full_pm 以逻辑像素创建，每个屏幕截图缩放到其逻辑尺寸后拼合
+            full_pm = QPixmap(total_rect.width(), total_rect.height())
             full_pm.fill(QColor(0, 0, 0))
             tmp_p = QPainter(full_pm)
             for s in screens:
                 pm = s.grabWindow(0)
-                dx = int((s.geometry().x() - total_rect.x()) * dpr)
-                dy = int((s.geometry().y() - total_rect.y()) * dpr)
-                tmp_p.drawPixmap(dx, dy, pm)
+                # 将该屏物理截图缩放到逻辑尺寸
+                g = s.geometry()
+                pm_logical = pm.scaled(g.width(), g.height(),
+                                       Qt.AspectRatioMode.IgnoreAspectRatio,
+                                       Qt.TransformationMode.SmoothTransformation)
+                dx = g.x() - total_rect.x()
+                dy = g.y() - total_rect.y()
+                tmp_p.drawPixmap(dx, dy, pm_logical)
             tmp_p.end()
-            bg = full_pm.scaled(total_rect.width(), total_rect.height(),
-                                Qt.AspectRatioMode.IgnoreAspectRatio,
-                                Qt.TransformationMode.FastTransformation)
+            bg = full_pm  # bg 与 full_pm 同为逻辑坐标，直接复用
 
             # ── 框选遮罩 Dialog ──
             class SelectionDialog(QDialog):
@@ -3305,12 +3306,14 @@ class BlockEditDialog(QDialog):
                 return
 
             # ── 5. 裁剪截图并 OCR ──
-            # 用 DPI 缩放换算回物理坐标裁剪
-            px_x = int(sel.x()      * dpr)
-            px_y = int(sel.y()      * dpr)
-            px_w = int(sel.width()  * dpr)
-            px_h = int(sel.height() * dpr)
-            cropped = full_pm.copy(px_x, px_y, px_w, px_h)
+            # full_pm 与 sel 均为逻辑坐标，直接裁剪
+            cropped = full_pm.copy(sel.x(), sel.y(), sel.width(), sel.height())
+            # 放大 2 倍提升 OCR 识别率（逻辑像素分辨率低时有明显改善）
+            if cropped.width() > 0 and cropped.height() > 0:
+                cropped = cropped.scaled(
+                    cropped.width() * 2, cropped.height() * 2,
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)
 
             text = BlockEditDialog._ocr_pixmap(cropped)
 
