@@ -33,18 +33,18 @@ WIKI_URL             = f"{GITHUB_REPO_URL}/wiki"
 LANG_MARKET_OWNER    = "XinyuCraft-XYHC"
 LANG_MARKET_REPO     = "autoflow-languages"
 LANG_MARKET_URL      = f"https://github.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
-# index.json 三级备用源：GitHub raw → jsDelivr CDN → Gitee raw
+# index.json 三级备用源：GitHub raw → jsDelivr CDN → Gitee raw（均为 master 分支）
 LANG_MARKET_INDEX    = (
     f"https://raw.githubusercontent.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
-    "/main/index.json"
+    "/master/index.json"
 )
 LANG_MARKET_INDEX_CDN = (
-    f"https://cdn.jsdelivr.net/gh/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}@main/index.json"
+    f"https://cdn.jsdelivr.net/gh/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}@master/index.json"
 )
 # Gitee 镜像（国内最稳定）用户名 XinyuCraft-XYHC_admin
 LANG_MARKET_INDEX_GITEE = (
     "https://gitee.com/XinyuCraft-XYHC_admin/autoflow-languages"
-    "/raw/main/index.json"
+    "/raw/master/index.json"
 )
 
 # ─── 社区插件市场 ───
@@ -53,15 +53,15 @@ PLUGIN_MARKET_REPO   = "autoflow-plugins"
 PLUGIN_MARKET_URL    = f"https://github.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
 PLUGIN_MARKET_INDEX  = (
     f"https://raw.githubusercontent.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
-    "/main/index.json"
+    "/master/index.json"
 )
 PLUGIN_MARKET_INDEX_CDN = (
-    f"https://cdn.jsdelivr.net/gh/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}@main/index.json"
+    f"https://cdn.jsdelivr.net/gh/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}@master/index.json"
 )
 # Gitee 镜像（国内最稳定）
 PLUGIN_MARKET_INDEX_GITEE = (
     "https://gitee.com/XinyuCraft-XYHC_admin/autoflow-plugins"
-    "/raw/main/index.json"
+    "/raw/master/index.json"
 )
 # 发布插件的 Issue 模板（引导用户提交 PR）
 PLUGIN_SUBMIT_URL    = (
