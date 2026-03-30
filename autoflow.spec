@@ -63,6 +63,101 @@ hiddenimports += collect_submodules('pywinauto')
 
 
 
+# ── 要从 binaries 里移除的 Qt6 DLL（AutoFlow 不使用这些模块）──
+# 只用 QtCore / QtGui / QtWidgets，其余的 Qt 模块 DLL 全部排除
+_QT_DLL_EXCLUDES = {
+    'Qt6Bluetooth.dll',
+    'Qt6Concurrent.dll',
+    'Qt6DBus.dll',
+    'Qt6Designer.dll',
+    'Qt6Help.dll',
+    'Qt6LabsAnimation.dll',
+    'Qt6LabsFolderListModel.dll',
+    'Qt6LabsPlatform.dll',
+    'Qt6LabsQmlModels.dll',
+    'Qt6LabsSettings.dll',
+    'Qt6LabsSharedImage.dll',
+    'Qt6LabsWavefrontMesh.dll',
+    'Qt6Multimedia.dll',
+    'Qt6MultimediaQuick.dll',
+    'Qt6MultimediaWidgets.dll',
+    'Qt6Network.dll',
+    'Qt6Nfc.dll',
+    'Qt6OpenGL.dll',
+    'Qt6OpenGLWidgets.dll',
+    'Qt6Pdf.dll',
+    'Qt6PdfQuick.dll',
+    'Qt6PdfWidgets.dll',
+    'Qt6Positioning.dll',
+    'Qt6PositioningQuick.dll',
+    'Qt6PrintSupport.dll',
+    'Qt6Qml.dll',
+    'Qt6QmlMeta.dll',
+    'Qt6QmlModels.dll',
+    'Qt6QmlWorkerScript.dll',
+    'Qt6Quick.dll',
+    'Qt6Quick3D.dll',
+    'Qt6Quick3DAssetImport.dll',
+    'Qt6Quick3DAssetUtils.dll',
+    'Qt6Quick3DEffects.dll',
+    'Qt6Quick3DGlslParser.dll',
+    'Qt6Quick3DHelpers.dll',
+    'Qt6Quick3DHelpersImpl.dll',
+    'Qt6Quick3DIblBaker.dll',
+    'Qt6Quick3DParticles.dll',
+    'Qt6Quick3DPhysics.dll',
+    'Qt6Quick3DPhysicsHelpers.dll',
+    'Qt6Quick3DRuntimeRender.dll',
+    'Qt6Quick3DSpatialAudio.dll',
+    'Qt6Quick3DUtils.dll',
+    'Qt6Quick3DXr.dll',
+    'Qt6QuickControls2.dll',
+    'Qt6QuickControls2Basic.dll',
+    'Qt6QuickControls2BasicStyleImpl.dll',
+    'Qt6QuickControls2Fusion.dll',
+    'Qt6QuickControls2FusionStyleImpl.dll',
+    'Qt6QuickControls2Imagine.dll',
+    'Qt6QuickControls2ImagineStyleImpl.dll',
+    'Qt6QuickControls2Impl.dll',
+    'Qt6QuickControls2Material.dll',
+    'Qt6QuickControls2MaterialStyleImpl.dll',
+    'Qt6QuickControls2Universal.dll',
+    'Qt6QuickControls2UniversalStyleImpl.dll',
+    'Qt6QuickDialogs2.dll',
+    'Qt6QuickDialogs2QuickImpl.dll',
+    'Qt6QuickDialogs2Utils.dll',
+    'Qt6QuickEffects.dll',
+    'Qt6QuickLayouts.dll',
+    'Qt6QuickParticles.dll',
+    'Qt6QuickShapes.dll',
+    'Qt6QuickTemplates2.dll',
+    'Qt6QuickTest.dll',
+    'Qt6QuickTimeline.dll',
+    'Qt6QuickTimelineBlendTrees.dll',
+    'Qt6QuickVectorImage.dll',
+    'Qt6QuickVectorImageGenerator.dll',
+    'Qt6QuickWidgets.dll',
+    'Qt6RemoteObjects.dll',
+    'Qt6RemoteObjectsQml.dll',
+    'Qt6Sensors.dll',
+    'Qt6SensorsQuick.dll',
+    'Qt6SerialPort.dll',
+    'Qt6ShaderTools.dll',
+    'Qt6SpatialAudio.dll',
+    'Qt6Sql.dll',
+    'Qt6StateMachine.dll',
+    'Qt6StateMachineQml.dll',
+    'Qt6Svg.dll',
+    'Qt6SvgWidgets.dll',
+    'Qt6Test.dll',
+    'Qt6TextToSpeech.dll',
+    'Qt6WebChannel.dll',
+    'Qt6WebChannelQuick.dll',
+    'Qt6WebSockets.dll',
+    'Qt6Xml.dll',
+}
+
+
 a = Analysis(
     ['main.py'],
     pathex=[SPECPATH],
@@ -76,10 +171,79 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        # ── Qt 模块：只用 QtCore/QtGui/QtWidgets，其余全排除 ──
+        'PyQt6.QtBluetooth',
+        'PyQt6.QtDBus',
+        'PyQt6.QtDesigner',
+        'PyQt6.QtHelp',
+        'PyQt6.QtMultimedia',
+        'PyQt6.QtMultimediaWidgets',
+        'PyQt6.QtNetwork',
+        'PyQt6.QtNfc',
+        'PyQt6.QtOpenGL',
+        'PyQt6.QtOpenGLWidgets',
+        'PyQt6.QtPdf',
+        'PyQt6.QtPdfWidgets',
+        'PyQt6.QtPositioning',
+        'PyQt6.QtPrintSupport',
+        'PyQt6.QtQml',
+        'PyQt6.QtQuick',
+        'PyQt6.QtQuick3D',
+        'PyQt6.QtQuickControls2',
+        'PyQt6.QtQuickWidgets',
+        'PyQt6.QtRemoteObjects',
+        'PyQt6.QtSensors',
+        'PyQt6.QtSerialPort',
+        'PyQt6.QtShaderTools',
+        'PyQt6.QtSpatialAudio',
+        'PyQt6.QtSql',
+        'PyQt6.QtStateMachine',
+        'PyQt6.QtSvg',
+        'PyQt6.QtSvgWidgets',
+        'PyQt6.QtTest',
+        'PyQt6.QtTextToSpeech',
+        'PyQt6.QtWebChannel',
+        'PyQt6.QtWebSockets',
+        'PyQt6.QtXml',
+        'PyQt6.QtConcurrent',
+        # ── 标准库中不需要的大模块 ──
+        'tkinter',
+        'unittest',
+        'test',
+        'xmlrpc',
+        'ftplib',
+        # ── 其他用不到的三方库 ──
+        'matplotlib',
+        'pandas',
+        'scipy',
+        'skimage',
+        'IPython',
+        'jupyter',
+        'notebook',
+        'docutils',
+        'sphinx',
+        # 注意：distutils/_distutils_hack/setuptools/pkg_resources 不能 exclude，
+        # PyInstaller 内部 hook 依赖 distutils 做 alias，强制排除会导致构建失败
+    ],
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
+# ── 从 binaries 里过滤掉不需要的 Qt6 DLL ──
+import os as _os2
+_removed = []
+_kept = []
+for _b in a.binaries:
+    _basename = _os2.path.basename(_b[0]).lower()
+    # _b = (dest_name, source_path, typecode)
+    if _os2.path.basename(_b[0]) in _QT_DLL_EXCLUDES:
+        _removed.append(_b[0])
+    else:
+        _kept.append(_b)
+a.binaries = TOC(_kept)
+if _removed:
+    print(f"[spec] 已排除 {len(_removed)} 个无用 Qt6 DLL，例如: {_removed[:3]}")
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -93,7 +257,19 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_dir=r'C:\Tools\upx',
+    upx_exclude=[
+        # Qt 核心 DLL 不压缩（UPX 对大型 Qt DLL 压缩率低且增加解压时间）
+        'Qt6Core.dll',
+        'Qt6Gui.dll',
+        'Qt6Widgets.dll',
+        # OpenCV 不压缩（已经是压缩格式）
+        'opencv_world*.dll',
+        # Python 解释器核心不压缩（影响启动速度）
+        'python3*.dll',
+        '_ssl.pyd',
+        '_hashlib.pyd',
+    ],
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,

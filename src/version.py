@@ -460,8 +460,17 @@
 #   - 修复「检测更新」显示旧版本：GitHub API 国内网络超时时 fallback 到 Gitee，
 #     但 Gitee Release 未同步，显示 v4.3.1；现已在 Gitee 补全历史 Release；
 
-VERSION       = "4.6.2"
-VERSION_TUPLE = (4, 6, 2)
+# v4.7.0   2026-03-30
+#   【打包体积与启动速度优化】
+#   - spec 加入 excludes：排除 PyQt6 中未使用的 Qt 模块（QtQml/Quick/3D/Multimedia/
+#     PDF/Bluetooth/Network/SQL 等共 30+ 项）以及 tkinter/unittest/setuptools 等
+#     标准库冗余模块；
+#   - 启用 optimize=2：编译期去掉 docstring，减小 PYZ 体积；
+#   - 指定 UPX 路径（C:\Tools\upx），对 Python 模块执行压缩；
+#     Qt 核心 DLL/OpenCV/Python 解释器加入 upx_exclude 避免过度压缩拖慢启动；
+
+VERSION       = "4.7.0"
+VERSION_TUPLE = (4, 7, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
