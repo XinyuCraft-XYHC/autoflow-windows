@@ -564,7 +564,9 @@ class TriggerEditDialog(QDialog):
 
 
 class TriggerListWidget(QWidget):
-    changed = pyqtSignal()
+    changed           = pyqtSignal()
+    # 只要有选中状态变更就发出（用于与 BlockListWidget 互斥）
+    selection_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -664,6 +666,30 @@ class TriggerListWidget(QWidget):
         scroll.setWidget(self._scroll_body)
         layout.addWidget(scroll)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # 在 scroll body 上安装事件过滤器，用于空白处取消选中
+        self._scroll_body.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        """监听 _scroll_body 上的鼠标点击，点击空白处清除选中"""
+        from PyQt6.QtCore import QEvent
+        if obj is self._scroll_body and event.type() == QEvent.Type.MouseButtonPress:
+            from PyQt6.QtCore import Qt as _Qt
+            if event.button() == _Qt.MouseButton.LeftButton:
+                child = self._scroll_body.childAt(event.position().toPoint())
+                # 如果没有点到任何控件，或者点到的控件不在 TriggerCard 内部
+                hit_card = False
+                w = child
+                while w is not None and w is not self._scroll_body:
+                    if isinstance(w, TriggerCard):
+                        hit_card = True
+                        break
+                    w = w.parent() if callable(getattr(w, 'parent', None)) else None
+                if not hit_card:
+                    self._selected_ids.clear()
+                    self._anchor_trigger_id = None
+                    self._multiselect_mode = False
+                    self._sync_selection_ui()
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
         """键盘快捷键：Ctrl+A 全选，Ctrl+C 复制，Delete/Ctrl+X 删除"""
@@ -764,6 +790,22 @@ class TriggerListWidget(QWidget):
                 c._select_cb.blockSignals(True)
                 c._select_cb.setChecked(selected)
                 c._select_cb.blockSignals(False)
+        self.selection_changed.emit()
+
+    def clear_selection(self):
+        """外部调用：清除所有选中（不发 selection_changed 防止循环）"""
+        self._selected_ids.clear()
+        self._anchor_trigger_id = None
+        self._multiselect_mode = False
+        for c in self._card_widgets:
+            c.set_selected(False)
+            if hasattr(c, '_select_cb'):
+                c._select_cb.setVisible(False)
+                c._select_cb.blockSignals(True)
+                c._select_cb.setChecked(False)
+                c._select_cb.blockSignals(False)
+
+
 
     def _copy_selected(self):
         """复制选中的触发器到内部剪贴板"""

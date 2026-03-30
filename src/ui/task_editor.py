@@ -124,8 +124,22 @@ class TaskEditorPage(QWidget):
         # 暴露 _block_list 别名供 main_window 使用
         self._block_list = self._block_editor
 
+        # 触发器与功能块选中互斥：任意一方有选中，另一方自动清除
+        self._trigger_editor.selection_changed.connect(self._on_trigger_selection_changed)
+        self._block_editor.selection_changed.connect(self._on_block_selection_changed)
+
         splitter.setSizes([300, 600])
         root.addWidget(splitter)
+
+    def _on_trigger_selection_changed(self):
+        """触发器侧有选中 → 清除功能块侧选中（互斥）"""
+        if self._trigger_editor._selected_ids:
+            self._block_editor.clear_selection()
+
+    def _on_block_selection_changed(self):
+        """功能块侧有选中 → 清除触发器侧选中（互斥）"""
+        if self._block_editor._selected_ids:
+            self._trigger_editor.clear_selection()
 
     def _retranslate(self):
         """语言切换后刷新所有文字"""

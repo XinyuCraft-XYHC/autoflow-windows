@@ -19,8 +19,9 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QSystemTrayIcon, QMenu, QInputDialog,
     QFrame, QSizePolicy, QApplication, QStatusBar, QDialog,
     QListWidgetItem, QScrollArea, QFormLayout, QComboBox, QDialogButtonBox,
-    QLineEdit
+    QLineEdit, QAbstractItemView
 )
+from PyQt6.QtGui import QDrag, QMimeData
 
 from .effects import FadeStackedWidget, fade_in, show_toast, animate_dialog_show
 
@@ -105,6 +106,190 @@ class HistoryEntry:
     def __init__(self, desc: str, snapshot: dict):
         self.desc     = desc        # 操作描述
         self.snapshot = snapshot    # 项目快照 (to_dict)
+
+
+# ─────────────────── 任务列表控件 ───────────────────
+class TaskListWidget(QListWidget):
+    """
+    支持拖拽排序、多选（Shift点击）、空白取消选中的任务列表。
+    分组标题行用单击切换折叠，不触发任务选中逻辑。
+    """
+    # 任务行被单击（task_id）
+    task_clicked    = pyqtSignal(str)
+    # 分组标题单击（gid）
+    group_clicked   = pyqtSignal(str)
+    # 任务拖动重排完成 (dragged_task_id, target_task_id_or_none, insert_after: bool)
+    task_reordered  = pyqtSignal(str, str, bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._drag_start_pos = None
+        self._dragging       = False
+        self._drag_item      = None
+        # 多选
+        self._selected_task_ids: set = set()
+        self._anchor_task_id: str | None = None
+        self._multiselect_mode: bool = False
+
+        self.setDragDropMode(QAbstractItemView.DragDropMode.NoDragDrop)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
+    # ── 鼠标事件 ──────────────────────────────────────
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.pos()
+            self._dragging = False
+            item = self.itemAt(event.pos())
+            self._drag_item = item
+        # 不调 super() 的 press（避免 currentRowChanged 触发任务选中）
+        # 但需要允许原生高亮
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (event.buttons() & Qt.MouseButton.LeftButton
+                and self._drag_start_pos is not None
+                and not self._dragging):
+            dist = (event.pos() - self._drag_start_pos).manhattanLength()
+            if dist > 8 and self._drag_item is not None:
+                task_id = self._drag_item.data(Qt.ItemDataRole.UserRole)
+                # 只允许拖动任务行，不拖分组标题
+                if task_id and isinstance(task_id, str):
+                    self._dragging = True
+                    drag = QDrag(self)
+                    mime = QMimeData()
+                    mime.setData("application/x-tasklist-id",
+                                 task_id.encode())
+                    drag.setMimeData(mime)
+                    drag.exec(Qt.DropAction.MoveAction)
+                    self._dragging = False
+                    self._drag_start_pos = None
+                    return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and not self._dragging:
+            item = self.itemAt(event.pos())
+            if item is None:
+                # 点击空白区域 → 清除选中
+                self._clear_task_selection()
+                self.clearSelection()
+                self.setCurrentRow(-1)
+                self._drag_start_pos = None
+                return
+            task_id  = item.data(Qt.ItemDataRole.UserRole)
+            item_kind = item.data(Qt.ItemDataRole.UserRole + 2)
+            shift_held = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+
+            if task_id is None and item_kind == "group_header":
+                # 分组标题单击 → 只发出折叠信号，不干扰任务选中
+                gid = item.data(Qt.ItemDataRole.UserRole + 1)
+                if gid:
+                    self.group_clicked.emit(gid)
+                self._drag_start_pos = None
+                return
+
+            if task_id and isinstance(task_id, str):
+                # 普通任务行
+                if shift_held:
+                    self._do_shift_select(task_id)
+                else:
+                    self._do_single_select(task_id)
+                self.task_clicked.emit(task_id)
+        self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat("application/x-tasklist-id"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat("application/x-tasklist-id"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat("application/x-tasklist-id"):
+            event.ignore()
+            return
+        drag_id = event.mimeData().data("application/x-tasklist-id").data().decode()
+        drop_item = self.itemAt(event.pos())
+        if drop_item is None:
+            event.ignore()
+            return
+        target_id = drop_item.data(Qt.ItemDataRole.UserRole)
+        # target 是分组标题则忽略
+        if not target_id or not isinstance(target_id, str):
+            event.ignore()
+            return
+        # 判断插入在 target 前还是后
+        item_rect = self.visualItemRect(drop_item)
+        insert_after = (event.position().toPoint().y() > item_rect.center().y())
+        self.task_reordered.emit(drag_id, target_id, insert_after)
+        event.acceptProposedAction()
+
+    # ── 多选逻辑 ──────────────────────────────────────
+    def _do_single_select(self, task_id: str):
+        if not self._multiselect_mode and task_id in self._selected_task_ids:
+            self._selected_task_ids.clear()
+            self._anchor_task_id = None
+        else:
+            self._multiselect_mode = False
+            self._selected_task_ids = {task_id}
+            self._anchor_task_id = task_id
+        self._sync_task_selection_ui()
+
+    def _do_shift_select(self, task_id: str):
+        self._multiselect_mode = True
+        all_task_ids = []
+        for i in range(self.count()):
+            it = self.item(i)
+            tid = it.data(Qt.ItemDataRole.UserRole) if it else None
+            if tid and isinstance(tid, str):
+                all_task_ids.append(tid)
+        anchor = self._anchor_task_id or (next(iter(self._selected_task_ids), None))
+        if not anchor:
+            anchor = task_id
+        try:
+            a_idx = all_task_ids.index(anchor)
+        except ValueError:
+            a_idx = 0
+        try:
+            b_idx = all_task_ids.index(task_id)
+        except ValueError:
+            b_idx = len(all_task_ids) - 1
+        lo, hi = min(a_idx, b_idx), max(a_idx, b_idx)
+        self._selected_task_ids = set(all_task_ids[lo:hi + 1])
+        self._sync_task_selection_ui()
+
+    def _clear_task_selection(self):
+        self._selected_task_ids.clear()
+        self._anchor_task_id = None
+        self._multiselect_mode = False
+        self._sync_task_selection_ui()
+
+    def _sync_task_selection_ui(self):
+        """根据 _selected_task_ids 更新条目高亮颜色"""
+        for i in range(self.count()):
+            it = self.item(i)
+            if it is None:
+                continue
+            tid = it.data(Qt.ItemDataRole.UserRole)
+            if tid and isinstance(tid, str):
+                if tid in self._selected_task_ids:
+                    it.setBackground(QColor("#1e3a5f"))
+                    it.setForeground(QColor("#89B4FA"))
+                else:
+                    it.setBackground(QColor("transparent"))
+                    # 恢复默认前景色
+                    it.setForeground(QColor("#CDD6F4"))
+
+    def setAcceptDrops(self, accept: bool):
+        super().setAcceptDrops(accept)
+        if accept:
+            self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
 
 
 class MainWindow(QMainWindow):
@@ -326,9 +511,14 @@ class MainWindow(QMainWindow):
         tasks_header.addWidget(self._group_btn)
         layout.addLayout(tasks_header)
 
-        self._task_list = QListWidget()
+        self._task_list = TaskListWidget()
         self._task_list.setObjectName("task_list")
-        self._task_list.currentRowChanged.connect(self._on_task_selected)
+        # 任务行单击 → 显示编辑器
+        self._task_list.task_clicked.connect(self._on_task_item_clicked)
+        # 分组标题单击 → 切换折叠
+        self._task_list.group_clicked.connect(self._on_group_item_clicked)
+        # 任务拖动重排
+        self._task_list.task_reordered.connect(self._on_task_reordered)
         layout.addWidget(self._task_list)
 
         self._add_task_btn = QPushButton("+  新建任务  Ctrl+T")
@@ -986,6 +1176,50 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.ItemDataRole.UserRole, task.id)
                 self._task_list.addItem(item)
 
+        # 恢复选中高亮
+        self._task_list._sync_task_selection_ui()
+
+    def _on_task_item_clicked(self, task_id: str):
+        """任务行被单击"""
+        task = next((t for t in self._project.tasks if t.id == task_id), None)
+        if task:
+            self._selected_task_id = task_id
+            self._show_task_editor(task)
+
+    def _on_group_item_clicked(self, gid: str):
+        """分组标题单击 → 切换折叠"""
+        if gid in self._collapsed_groups:
+            self._collapsed_groups.discard(gid)
+        else:
+            self._collapsed_groups.add(gid)
+        self._refresh_task_list()
+
+    def _on_task_reordered(self, dragged_task_id: str, target_task_id: str, insert_after: bool):
+        """任务拖动重排"""
+        dragged = next((t for t in self._project.tasks if t.id == dragged_task_id), None)
+        target = next((t for t in self._project.tasks if t.id == target_task_id), None)
+        if not dragged or not target:
+            return
+        self._project.tasks.remove(dragged)
+        target_idx = self._project.tasks.index(target)
+        if insert_after:
+            target_idx += 1
+        self._project.tasks.insert(target_idx, dragged)
+        self._refresh_task_list()
+        self._mark_modified()
+        self._push_history(f"重排任务: {dragged.name}")
+
+    def _quick_add_group(self):
+        """快速新建分组（右键菜单）"""
+        name, ok = QInputDialog.getText(self, "新建分组", "分组名称：")
+        if ok and name.strip():
+            import uuid as _uuid
+            gid = str(_uuid.uuid4())[:8]
+            self._project.task_groups.append({"id": gid, "name": name.strip()})
+            self._refresh_task_list()
+            self._mark_modified()
+            self._push_history(f"新建分组: {name.strip()}")
+
     def _on_task_selected(self, row: int):
         if row < 0:
             return
@@ -1041,20 +1275,30 @@ class MainWindow(QMainWindow):
 
         self._task_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._task_list.customContextMenuRequested.connect(self._task_list_context_menu)
+        # 允许任务拖动重排
+        self._task_list.setAcceptDrops(True)
 
     def _task_list_context_menu(self, pos):
         item = self._task_list.itemAt(pos)
+        menu = QMenu(self)
+
         if not item:
+            # 右键空白区域：提供新建任务 + 新建分组
+            menu.addAction("＋ 新建任务", self._add_task)
+            menu.addAction("📁 新建分组", self._quick_add_group)
+            menu.exec(self._task_list.mapToGlobal(pos))
             return
+
         task_id = item.data(Qt.ItemDataRole.UserRole)
         if task_id is None:
             # 右键分组标题
             gid = item.data(Qt.ItemDataRole.UserRole + 1)
             if not gid:
                 return
-            menu = QMenu(self)
-            menu.addAction("重命名分组", lambda: self._rename_group(gid))
-            menu.addAction("删除分组（任务保留）", lambda: self._delete_group(gid))
+            menu.addAction("✏ 重命名分组", lambda: self._rename_group(gid))
+            menu.addAction("🗑 删除分组（任务保留）", lambda: self._delete_group(gid))
+            menu.addSeparator()
+            menu.addAction("📁 新建分组", self._quick_add_group)
             menu.exec(self._task_list.mapToGlobal(pos))
             return
 

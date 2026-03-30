@@ -430,8 +430,26 @@
 #       · 检测更新：GitHub API → 失败/限流时 fallback Gitee API
 #     Gitee raw 和 API 均测试可用，国内用户不再受 GitHub 网络影响
 
-VERSION       = "4.5.1"
-VERSION_TUPLE = (4, 5, 1)
+# v4.6.0   2026-03-30
+#   【任务列表拖动排序 + 分组管理升级 + 触发器/功能块选中互斥修复】
+#   任务列表交互升级（TaskListWidget 全重写）：
+#     - 支持拖动排序（MouseMove 超阈值触发 QDrag，dropEvent 发出 task_reordered 信号）；
+#     - 支持多选（Shift+单击范围多选）+ 选中蓝色高亮（与功能块/触发器风格统一）；
+#     - 点击空白区域清除选中；分组标题行单击切换折叠，不影响任务选中状态；
+#     - _refresh_task_list 末尾调用 _sync_task_selection_ui() 恢复刷新后高亮；
+#   任务分组管理：
+#     - 右键空白区域：「新建分组」快速弹窗新建分组，无需打开分组管理页面；
+#     - 右键任务行：「移入分组」子菜单，含「不分组」选项；
+#     - 右键分组标题：「重命名分组」/ 「删除分组（任务保留）」；
+#     - 分组折叠/展开状态跨刷新保持（_collapsed_groups set）；
+#   触发器修复：
+#     - 空白处取消选中：在 _scroll_body 安装 eventFilter，
+#       MouseButtonPress 时检查点击是否落在 TriggerCard 内，否则清除选中；
+#     - 触发器/功能块选中互斥：双方各加 selection_changed 信号 + clear_selection() 方法，
+#       TaskEditorPage 连接 _on_trigger_selection_changed / _on_block_selection_changed 互斥；
+
+VERSION       = "4.6.0"
+VERSION_TUPLE = (4, 6, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

@@ -2922,9 +2922,11 @@ class InsertHandle(QWidget):
 # ─────────────────── 功能块列表面板（积木流） ───────────────────
 
 class BlockListWidget(QWidget):
-    changed          = pyqtSignal()
-    run_single_block = pyqtSignal(object)   # 发出: Block 对象（运行此单块）
-    run_from_block   = pyqtSignal(int)      # 发出: 起始索引（从此处开始运行）
+    changed           = pyqtSignal()
+    run_single_block  = pyqtSignal(object)   # 发出: Block 对象（运行此单块）
+    run_from_block    = pyqtSignal(int)      # 发出: 起始索引（从此处开始运行）
+    # 只要有选中状态变更就发出（用于与 TriggerListWidget 互斥）
+    selection_changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -3277,6 +3279,7 @@ class BlockListWidget(QWidget):
         # 同步所有卡片的视觉选中状态
         self._sync_selection_ui()
 
+
     def _sync_selection_ui(self):
         """根据 _selected_ids 和 _multiselect_mode 同步所有卡片的视觉状态"""
         for c in self._card_widgets:
@@ -3288,6 +3291,22 @@ class BlockListWidget(QWidget):
                 c._select_cb.setVisible(self._multiselect_mode)
                 c._select_cb.blockSignals(True)
                 c._select_cb.setChecked(selected)
+                c._select_cb.blockSignals(False)
+        self.selection_changed.emit()
+
+    def clear_selection(self):
+        """外部调用：清除所有选中（不发 selection_changed 防止循环）"""
+        self._selected_ids.clear()
+        self._anchor_block_id = None
+        self._multiselect_mode = False
+        for c in self._card_widgets:
+            if not hasattr(c, 'block'):
+                continue
+            c.set_selected(False)
+            if hasattr(c, '_select_cb'):
+                c._select_cb.setVisible(False)
+                c._select_cb.blockSignals(True)
+                c._select_cb.setChecked(False)
                 c._select_cb.blockSignals(False)
 
     def mousePressEvent(self, event):
