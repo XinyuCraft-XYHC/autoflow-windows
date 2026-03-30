@@ -33,14 +33,13 @@ WIKI_URL             = f"{GITHUB_REPO_URL}/wiki"
 LANG_MARKET_OWNER    = "XinyuCraft-XYHC"
 LANG_MARKET_REPO     = "autoflow-languages"
 LANG_MARKET_URL      = f"https://github.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
-# index.json 直链（GitHub raw）
+# index.json 直链（GitHub raw → jsDelivr CDN 备用，国内可访问）
 LANG_MARKET_INDEX    = (
     f"https://raw.githubusercontent.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
     "/main/index.json"
 )
-LANG_MARKET_INDEX_GITEE = (
-    f"https://gitee.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
-    "/raw/main/index.json"
+LANG_MARKET_INDEX_CDN = (
+    f"https://cdn.jsdelivr.net/gh/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}@main/index.json"
 )
 
 # ─── 社区插件市场 ───
@@ -51,9 +50,8 @@ PLUGIN_MARKET_INDEX  = (
     f"https://raw.githubusercontent.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
     "/main/index.json"
 )
-PLUGIN_MARKET_INDEX_GITEE = (
-    f"https://gitee.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
-    "/raw/main/index.json"
+PLUGIN_MARKET_INDEX_CDN = (
+    f"https://cdn.jsdelivr.net/gh/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}@main/index.json"
 )
 # 发布插件的 Issue 模板（引导用户提交 PR）
 PLUGIN_SUBMIT_URL    = (
@@ -239,13 +237,14 @@ def fetch_language_market(callback: Callable[[list, Optional[str]], None],
     """
     异步拉取语言包市场索引，完成后回调 callback(items, error_msg)。
     items 为语言包列表（失败时为 []），error_msg 为错误信息或 None。
+    优先 GitHub raw，失败时 fallback 到 jsDelivr CDN（国内可访问）。
     """
     def _worker():
         data = _fetch_url_json(LANG_MARKET_INDEX, timeout)
         if data is None:
-            data = _fetch_url_json(LANG_MARKET_INDEX_GITEE, timeout)
+            data = _fetch_url_json(LANG_MARKET_INDEX_CDN, timeout)
         if data is None:
-            callback([], "无法连接到语言包市场，请检查网络连接")
+            callback([], "无法连接到语言包市场，请检查网络连接\n（GitHub raw + jsDelivr CDN 均不可访问）")
         else:
             callback(data if isinstance(data, list) else [], None)
 
@@ -257,13 +256,14 @@ def fetch_plugin_market(callback: Callable[[list, Optional[str]], None],
     """
     异步拉取插件市场索引，完成后回调 callback(items, error_msg)。
     items 为插件列表（失败时为 []），error_msg 为错误信息或 None。
+    优先 GitHub raw，失败时 fallback 到 jsDelivr CDN（国内可访问）。
     """
     def _worker():
         data = _fetch_url_json(PLUGIN_MARKET_INDEX, timeout)
         if data is None:
-            data = _fetch_url_json(PLUGIN_MARKET_INDEX_GITEE, timeout)
+            data = _fetch_url_json(PLUGIN_MARKET_INDEX_CDN, timeout)
         if data is None:
-            callback([], "无法连接到插件市场，请检查网络连接")
+            callback([], "无法连接到插件市场，请检查网络连接\n（GitHub raw + jsDelivr CDN 均不可访问）")
         else:
             callback(data if isinstance(data, list) else [], None)
 

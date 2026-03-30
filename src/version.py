@@ -460,20 +460,24 @@
 #   - 修复「检测更新」显示旧版本：GitHub API 国内网络超时时 fallback 到 Gitee，
 #     但 Gitee Release 未同步，显示 v4.3.1；现已在 Gitee 补全历史 Release；
 
-# v4.9.0   2026-03-30
-#   【语言包市场 + 插件市场 + 安装包中文化】
-#   - 安装包（installer.iss）加入中文语言包（ChineseSimplified.isl）；
-#     桌面快捷方式改为默认勾选；检测 AutoFlow 运行时的提示文字汉化；
-#   - 社区语言包仓库（autoflow-languages）：日/韩/法/德/俄 5 种语言包示例；
-#   - 社区插件仓库（autoflow-plugins）：系统监控/剪贴板历史/HTTP请求 3 个示例插件；
-#   - 设置→外观新增「🌐 语言包市场」入口：在线浏览/一键下载社区语言包；
-#   - 插件管理页新增「🛒 插件市场」入口：在线浏览/一键安装社区插件；
-#   - 插件市场底部「📤 发布我的插件」：引导开发者提交 PR 到市场仓库；
-#   - updater.py 新增 fetch_language_market / fetch_plugin_market /
-#     download_language / download_plugin 四个异步函数；
+# v4.10.0  2026-03-30
+#   【更新对话框 + 市场修复 + 滚轮优化 + Bug 修复】
+#   - 新增自动更新对话框（update_dialog.py）：检测到新版本时弹出对话框，
+#     支持「前往下载页」/ 「自动下载安装」（选择下载源+进度条+启动安装包+关闭程序）
+#     / 「忽略此版本」/ 「稍后再说」；支持 GitHub / GitHub Proxy 等多个下载源；
+#   - 修复语言包/插件市场按钮显示 key 字符串（plugin.market_btn 等 key 未在 i18n 中注册）；
+#   - 修复市场无法连接：改用 jsDelivr CDN 作为 GitHub raw 的备用源（国内可访问）；
+#   - 修复设置页 SpinBox 滚轮误触：新增 FocusSpinBox/FocusDoubleSpinBox，
+#     只有在获得输入焦点后才响应鼠标滚轮，滚动页面时不再误调数值；
+#   - 修复 launch_app 无法打开 .lnk 快捷方式文件（WinError 193）：
+#     对 .lnk/.bat/.cmd 等 Shell 文件改用 ShellExecuteW(open) 而非 Popen；
+#   - 修复 Ping 延迟触发器断网时不触发：direction=above 时 latency=None（超时/断网）
+#     视为延迟无限大，满足「超过阈值」条件，同样触发；
+#   - i18n.py 新增 update.* / plugin.market_btn / settings.lang_market_btn 翻译键；
+#   - Gitee 主仓库已同步（代码与 GitHub 一致）；
 
-VERSION       = "4.9.0"
-VERSION_TUPLE = (4, 9, 0)
+VERSION       = "4.10.0"
+VERSION_TUPLE = (4, 10, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

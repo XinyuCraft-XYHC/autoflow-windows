@@ -5,7 +5,7 @@ import os
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QLineEdit, QCheckBox, QSpinBox, QComboBox, QFormLayout,
+    QLineEdit, QCheckBox, QSpinBox, QDoubleSpinBox, QComboBox, QFormLayout,
     QGroupBox, QScrollArea, QFrame, QFileDialog, QMessageBox,
     QTabWidget
 )
@@ -13,6 +13,27 @@ from PyQt6.QtWidgets import (
 from ..engine.models import AppConfig, Task
 from .themes import PALETTES
 from .block_editor import HotkeyEdit  # 点击即录制的输入框
+
+
+# ─── 只在获得焦点时响应滚轮的 SpinBox ─────────────────────────────
+class FocusSpinBox(QSpinBox):
+    """只有在输入框被点击/获得焦点后才响应鼠标滚轮，避免滚动页面时误触数值"""
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()  # 把事件向上传递，让外层滚动区处理
+
+
+class FocusDoubleSpinBox(QDoubleSpinBox):
+    """只有在输入框被点击/获得焦点后才响应鼠标滚轮"""
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 from ..i18n import tr, add_language_observer, remove_language_observer
 from typing import List
 
@@ -146,7 +167,7 @@ class SettingsPage(QWidget):
         gf2.setSpacing(10)
         self._auto_save_cb = QCheckBox(tr("settings.autosave_enable"))
         gf2.addRow("", self._auto_save_cb)
-        self._auto_save_interval = QSpinBox()
+        self._auto_save_interval = FocusSpinBox()
         self._auto_save_interval.setRange(10, 3600)
         self._auto_save_interval.setSuffix(tr("settings.autosave_unit"))
         self._autosave_form = gf2
@@ -156,7 +177,7 @@ class SettingsPage(QWidget):
         self._grp_undo = QGroupBox(tr("settings.grp.undo"))
         gf3 = QFormLayout(self._grp_undo)
         gf3.setSpacing(10)
-        self._max_undo = QSpinBox()
+        self._max_undo = FocusSpinBox()
         self._max_undo.setRange(5, 500)
         self._max_undo.setSuffix(tr("settings.undo_unit"))
         gf3.addRow(tr("settings.max_undo"), self._max_undo)
@@ -198,7 +219,7 @@ class SettingsPage(QWidget):
         sf = QFormLayout(self._grp_smtp)
         sf.setSpacing(8)
         self._smtp_server = QLineEdit(); sf.addRow(tr("settings.smtp.server"), self._smtp_server)
-        self._smtp_port   = QSpinBox(); self._smtp_port.setRange(1,65535); sf.addRow(tr("settings.smtp.port"), self._smtp_port)
+        self._smtp_port   = FocusSpinBox(); self._smtp_port.setRange(1,65535); sf.addRow(tr("settings.smtp.port"), self._smtp_port)
         self._smtp_user   = QLineEdit(); sf.addRow(tr("settings.smtp.user"), self._smtp_user)
         self._smtp_pass   = QLineEdit(); self._smtp_pass.setEchoMode(QLineEdit.EchoMode.Password)
         sf.addRow(tr("settings.smtp.pass"), self._smtp_pass)
@@ -213,7 +234,7 @@ class SettingsPage(QWidget):
         imf = QFormLayout(self._grp_imap)
         imf.setSpacing(8)
         self._imap_server = QLineEdit(); imf.addRow(tr("settings.imap.server"), self._imap_server)
-        self._imap_port   = QSpinBox(); self._imap_port.setRange(1,65535); imf.addRow(tr("settings.imap.port"), self._imap_port)
+        self._imap_port   = FocusSpinBox(); self._imap_port.setRange(1,65535); imf.addRow(tr("settings.imap.port"), self._imap_port)
         self._imap_user   = QLineEdit(); imf.addRow(tr("settings.imap.user"), self._imap_user)
         self._imap_pass   = QLineEdit(); self._imap_pass.setEchoMode(QLineEdit.EchoMode.Password)
         imf.addRow(tr("settings.imap.pass"), self._imap_pass)
@@ -542,7 +563,7 @@ class SettingsPage(QWidget):
         gf_params.setSpacing(10)
 
         from PyQt6.QtWidgets import QDoubleSpinBox
-        self._ai_temperature = QDoubleSpinBox()
+        self._ai_temperature = FocusDoubleSpinBox()
         self._ai_temperature.setRange(0.0, 2.0)
         self._ai_temperature.setSingleStep(0.1)
         self._ai_temperature.setDecimals(1)
@@ -550,7 +571,7 @@ class SettingsPage(QWidget):
         gf_params.addRow(tr("settings.ai_temperature"), self._ai_temperature)
 
         from PyQt6.QtWidgets import QSpinBox as _QSpin
-        self._ai_max_tokens = _QSpin()
+        self._ai_max_tokens = FocusSpinBox()
         self._ai_max_tokens.setRange(128, 32768)
         self._ai_max_tokens.setSingleStep(256)
         self._ai_max_tokens.setValue(2048)
@@ -871,7 +892,7 @@ class SettingsPage(QWidget):
         self._log_browse_btn.clicked.connect(self._pick_log_path)
         hl.addWidget(self._log_browse_btn)
         gf.addRow(tr("settings.log_path"), row)
-        self._max_log = QSpinBox()
+        self._max_log = FocusSpinBox()
         self._max_log.setRange(100, 100000)
         gf.addRow(tr("settings.max_log_lines"), self._max_log)
         layout.addWidget(self._grp_log)

@@ -4025,6 +4025,36 @@ except Exception as e:
 
         self._log("INFO", f"    启动应用: {path}" + (f" {args}" if args else ""))
 
+        # ── 快捷方式 / 文档类文件：直接用 ShellExecuteW（Windows Shell 处理）──
+        ext = _os.path.splitext(path)[1].lower()
+        _SHELL_EXTS = {".lnk", ".url", ".pif", ".bat", ".cmd", ".ps1",
+                       ".vbs", ".wsf", ".reg", ".msi", ".msc"}
+        if ext in _SHELL_EXTS:
+            try:
+                import ctypes as _ctypes
+                SW_SHOWNORMAL = 1
+                SW_SHOWMINIMIZED = 2
+                SW_SHOWMAXIMIZED = 3
+                sw = SW_SHOWNORMAL
+                if run_mode == "minimized":
+                    sw = SW_SHOWMINIMIZED
+                elif run_mode == "maximized":
+                    sw = SW_SHOWMAXIMIZED
+                verb = "runas" if as_admin else "open"
+                params = args if args else None
+                ret = _ctypes.windll.shell32.ShellExecuteW(
+                    None, verb, path, params,
+                    cwd if cwd else None, sw
+                )
+                if ret <= 32:
+                    self._log("WARN", f"    启动应用(Shell)失败，错误码: {ret}，尝试 os.startfile")
+                    _os.startfile(path)
+                else:
+                    self._log("INFO", f"    已通过 Shell 启动: {path}")
+            except Exception as _e:
+                self._log("ERROR", f"    启动应用失败: {_e}")
+            return
+
         # 构建 creationflags（窗口模式）
         CREATE_NO_WINDOW   = 0x08000000
         CREATE_MINIMIZED   = 0x00000006   # CREATE_NEW_CONSOLE | STARTF_USESHOWWINDOW

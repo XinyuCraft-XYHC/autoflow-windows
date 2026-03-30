@@ -1904,20 +1904,38 @@ class MainWindow(QMainWindow):
         check_update(VERSION, callback=_on_result, timeout=6)
 
     def _show_update_tip(self, result: dict):
-        """有新版本时在状态栏显示非侵入性提示（点击可打开 Release 页）"""
+        """有新版本时弹出更新对话框"""
         if not result.get("has_update"):
             return
+
         tag = result.get("latest_tag", "")
+
+        # 检查是否已被用户忽略
+        try:
+            import json as _json
+            cfg_path = _APP_CONFIG_PATH
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as _f:
+                    _data = _json.load(_f)
+                if _data.get("ignored_update_version") == tag:
+                    return   # 用户已忽略此版本，只在状态栏显示小提示
+        except Exception:
+            pass
+
+        # 弹出更新对话框
+        from .update_dialog import UpdateDialog
+        dlg = UpdateDialog(result, VERSION, parent=self)
+        dlg.exec()
+
+        # 无论对话框结果如何，状态栏也显示版本提示（非侵入）
         url = result.get("html_url", "")
         if not hasattr(self, "_update_tip_lbl"):
-            from PyQt6.QtWidgets import QLabel as _QLabel
-            self._update_tip_lbl = _QLabel()
-            self._update_tip_lbl.setOpenExternalLinks(True)
-            self._update_tip_lbl.setTextFormat(Qt.TextFormat.RichText)
-            self._update_tip_lbl.setStyleSheet(
-                "color:#4ade80; font-size:11px; padding:0 8px;"
-            )
-            self.statusBar().addPermanentWidget(self._update_tip_lbl)
+            _qlbl = QLabel()
+            _qlbl.setOpenExternalLinks(True)
+            _qlbl.setTextFormat(Qt.TextFormat.RichText)
+            _qlbl.setStyleSheet("color:#4ade80; font-size:11px; padding:0 8px;")
+            self.statusBar().addPermanentWidget(_qlbl)
+            self._update_tip_lbl = _qlbl
         self._update_tip_lbl.setText(
             f'🎉 <a href="{url}" style="color:#4ade80;">发现新版本 {tag}，点此下载</a>'
         )

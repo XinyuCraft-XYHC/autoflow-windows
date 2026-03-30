@@ -1143,10 +1143,15 @@ class TriggerMonitor:
         latency = self._get_ping_latency_ms(host)
 
         # 判断当前是否满足触发条件
+        # 注意：latency=None 表示超时/断网
+        #   - direction="timeout"：明确检测超时，触发
+        #   - direction="above"：延迟无限大，视为超过任何阈值，触发
+        #   - direction="below"：无法 ping 通，视为不满足「低于阈值」，不触发
         if direction == "timeout":
             cur_state = (latency is None)
         elif direction == "above":
-            cur_state = (latency is not None and latency > threshold_ms)
+            # None（超时）视为延迟无限大，同样满足「超过阈值」
+            cur_state = (latency is None or latency > threshold_ms)
         elif direction == "below":
             cur_state = (latency is not None and latency < threshold_ms)
         else:
@@ -1169,7 +1174,10 @@ class TriggerMonitor:
             if direction == "timeout":
                 reason = f"Ping {host} 超时/不可达"
             elif direction == "above":
-                reason = f"Ping {host} 延迟 {latency:.0f}ms > {threshold_ms:.0f}ms"
+                if latency is None:
+                    reason = f"Ping {host} 超时/不可达（视为超过 {threshold_ms:.0f}ms 阈值）"
+                else:
+                    reason = f"Ping {host} 延迟 {latency:.0f}ms > {threshold_ms:.0f}ms"
             else:
                 reason = f"Ping {host} 延迟 {latency:.0f}ms < {threshold_ms:.0f}ms"
             self._fire(task_id, reason, trig)

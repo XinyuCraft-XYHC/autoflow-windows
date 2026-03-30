@@ -267,6 +267,26 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "proc_list.col_proc": "进程名",
         "proc_list.col_win": "窗口标题",
         "proc_list.col_pid": "PID",
+        # 市场相关
+        "plugin.market_btn": "插件市场",
+        "settings.lang_market_btn": "语言包市场",
+        # 更新对话框
+        "update.title": "发现新版本",
+        "update.found": "AutoFlow {latest} 已发布！",
+        "update.current": "当前版本：{current}",
+        "update.latest": "最新版本：{latest}",
+        "update.notes": "更新说明",
+        "update.btn_manual": "前往下载页",
+        "update.btn_auto": "自动下载安装",
+        "update.btn_ignore": "忽略此版本",
+        "update.btn_later": "稍后再说",
+        "update.dl_title": "下载更新",
+        "update.dl_source": "选择下载源：",
+        "update.dl_progress": "下载进度",
+        "update.dl_done": "下载完成，即将打开安装包...",
+        "update.dl_error": "下载失败",
+        "update.dl_cancel": "取消",
+        "update.installing": "正在启动安装程序，安装完成后请手动重启 AutoFlow...",
     },
 
     "zh_TW": {
@@ -526,6 +546,26 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "proc_list.col_proc": "行程名稱",
         "proc_list.col_win": "視窗標題",
         "proc_list.col_pid": "PID",
+        # 市場相關
+        "plugin.market_btn": "外掛市集",
+        "settings.lang_market_btn": "語言包市集",
+        # 更新對話框
+        "update.title": "發現新版本",
+        "update.found": "AutoFlow {latest} 已發布！",
+        "update.current": "目前版本：{current}",
+        "update.latest": "最新版本：{latest}",
+        "update.notes": "更新說明",
+        "update.btn_manual": "前往下載頁",
+        "update.btn_auto": "自動下載安裝",
+        "update.btn_ignore": "忽略此版本",
+        "update.btn_later": "稍後再說",
+        "update.dl_title": "下載更新",
+        "update.dl_source": "選擇下載源：",
+        "update.dl_progress": "下載進度",
+        "update.dl_done": "下載完成，即將啟動安裝程式...",
+        "update.dl_error": "下載失敗",
+        "update.dl_cancel": "取消",
+        "update.installing": "正在啟動安裝程式，安裝完成後請手動重啟 AutoFlow...",
     },
 
     "en_US": {
@@ -785,6 +825,26 @@ _TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "proc_list.col_proc": "Process",
         "proc_list.col_win": "Window Title",
         "proc_list.col_pid": "PID",
+        # Marketplace
+        "plugin.market_btn": "Plugin Market",
+        "settings.lang_market_btn": "Language Market",
+        # Update dialog
+        "update.title": "New Version Available",
+        "update.found": "AutoFlow {latest} is available!",
+        "update.current": "Current version: {current}",
+        "update.latest": "Latest version: {latest}",
+        "update.notes": "Release Notes",
+        "update.btn_manual": "Go to Download Page",
+        "update.btn_auto": "Auto Download & Install",
+        "update.btn_ignore": "Ignore This Version",
+        "update.btn_later": "Remind Me Later",
+        "update.dl_title": "Downloading Update",
+        "update.dl_source": "Select download source:",
+        "update.dl_progress": "Download Progress",
+        "update.dl_done": "Download complete, launching installer...",
+        "update.dl_error": "Download failed",
+        "update.dl_cancel": "Cancel",
+        "update.installing": "Launching installer... Please restart AutoFlow after installation.",
     },
 }
 
@@ -834,10 +894,17 @@ def get_language() -> str:
     return _current_lang
 
 
-def tr(key: str, *args) -> str:
-    """获取翻译文本，支持 .format() 占位符"""
+def tr(key: str, *args, default: str = None) -> str:
+    """获取翻译文本，支持 .format() 占位符
+    
+    Args:
+        key: 翻译键
+        *args: format 占位符参数
+        default: 找不到翻译时的默认值（不传则回退到 zh_CN，再无则返回 key）
+    """
     lang_dict = _TRANSLATIONS.get(_current_lang, _TRANSLATIONS["zh_CN"])
-    text = lang_dict.get(key, _TRANSLATIONS["zh_CN"].get(key, key))
+    fallback = default if default is not None else key
+    text = lang_dict.get(key, _TRANSLATIONS["zh_CN"].get(key, fallback))
     if args:
         try:
             text = text.format(*args)
