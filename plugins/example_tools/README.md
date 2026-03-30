@@ -16,4 +16,4 @@ AutoFlow 官方示例插件，展示插件开发的完整流程。
 
 ## 开发参考
 
-请参阅 [插件开发文档](https://github.com/autoflow-plugin) 了解如何开发自己的插件。
+请参阅 [插件开发文档](https://github.com/XinyuCraft-XYHC/autoflow-windows/blob/master/docs/plugin-dev-guide.md) 了解如何开发自己的插件。
