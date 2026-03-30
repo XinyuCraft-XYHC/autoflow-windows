@@ -375,8 +375,49 @@
 #     AttributeError: 'TriggerCard' object has no attribute '_show_context_menu'；
 #   - 修复：补上 def _show_context_menu(self, pos): 方法头，将右键菜单逻辑独立为正确方法。
 
-VERSION       = "4.3.1"
-VERSION_TUPLE = (4, 3, 1)
+# v4.4.0   2026-03-29
+#   【鼠标运动曲线全面升级 + 自动更新/版本检测 + GitHub 信息同步回软件】
+#
+#   鼠标运动曲线升级：
+#     - 新增 5 种缓动曲线：ease_in_cubic（三次缓入）、ease_out_cubic（三次缓出）、
+#       ease_out_back（超出回弹）、spring（弹性衰减）
+#     - 「随机曲线」更名为「拟人化曲线」（humanize），算法完全重写：
+#         * 基础速度采用 smoothstep（先慢→快→慢），模拟手腕加减速节奏
+#         * 叠加随机控制点的二次贝塞尔弧线，避免机械直线路径
+#         * 叠加低频正弦漂移（模拟手腕旋转的圆弧感），幅度随距离自适应
+#         * 叠加高频微抖动（端点处收缩为 0，保证起终点精确）
+#         * 非均匀步长（端点步长是中段的 2.5 倍），模拟真实加减速节奏
+#     - mouse_move / mouse_drag / mouse_click_pos 三个功能块均支持全部新曲线
+#
+#   自动更新 / 版本检测（src/updater.py 新模块）：
+#     - 启动后 5 秒静默检测 GitHub Releases（不阻塞启动，网络超时 6 秒）
+#     - 发现新版本在状态栏底部显示绿色非侵入性提示链接，点击直达下载页
+#     - 设置→关于 Tab 新增「检查更新」按钮，支持手动触发，实时显示检测状态
+#     - 检测到新版本时显示「前往下载」按钮，自动跳转到 Release exe 直链
+#     - 版本号对比基于语义版本三段整数比较（v4.3.1 格式）
+#
+#   GitHub 信息同步回软件：
+#     - 关于页新增 GitHub / Gitee / Issues 三个可点击链接
+#     - 插件页「如何开发插件」链接更新为真实 GitHub 仓库文档路径
+#     - src/updater.py 统一维护所有外部链接常量（GITHUB_REPO_URL、GITEE_REPO_URL、
+#       PLUGIN_DEV_DOCS_URL、ISSUES_URL、WIKI_URL 等），方便日后统一修改
+
+# v4.5.0   2026-03-30
+#   【远程公告系统】
+#   - updater.py 新增 fetch_announcements() 函数：从 GitHub 仓库 docs/announcements.json
+#     拉取远程公告列表，后台异步执行，不阻塞 UI
+#   - AppConfig 新增 read_announcement_ids 字段：记录已读公告 ID，避免重复弹出
+#   - 启动后 8 秒异步拉取公告（与更新检测错开，各自独立网络请求）
+#   - _AnnouncementDialog 公告展示对话框：
+#       · 支持多条公告翻页（上一条/下一条）
+#       · level 颜色区分：info=蓝色 / warning=橙色 / important=红色
+#       · pinned=true 的固定公告每次启动都显示；普通公告只在首次（未读）时弹出
+#       · 可选「查看详情」按钮跳转外链（url 为空时自动隐藏）
+#   - docs/announcements.json：运营公告数据源，推送到 GitHub master 分支后即时生效，
+#     无需重新发布版本，支持远程运营/紧急通知/更新提示等场景
+
+VERSION       = "4.5.0"
+VERSION_TUPLE = (4, 5, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

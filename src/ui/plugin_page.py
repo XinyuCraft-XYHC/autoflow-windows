@@ -235,8 +235,9 @@ class PluginManagerPage(QWidget):
         sb_layout.addWidget(self._stats_lbl)
         sb_layout.addStretch()
         # 「如何开发插件」链接
+        from ..updater import PLUGIN_DEV_DOCS_URL
         dev_lbl = QLabel(
-            f'<a href="https://github.com/autoflow-plugin" style="color:#89B4FA;">'
+            f'<a href="{PLUGIN_DEV_DOCS_URL}" style="color:#89B4FA;">'
             f'{tr("plugin.dev_docs")}</a>'
         )
         dev_lbl.setOpenExternalLinks(True)

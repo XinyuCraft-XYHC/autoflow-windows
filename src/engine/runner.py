@@ -3541,26 +3541,125 @@ except Exception as e:
 
     @staticmethod
     def _easing(t: float, curve: str) -> float:
-        """将线性进度 t∈[0,1] 映射为缓动进度"""
-        import random as _rand
+        """将线性进度 t∈[0,1] 映射为缓动进度（不含 bezier/humanize，这两种在调用处单独处理）"""
+        import math as _math
         if curve == "ease_in":
+            # 二次缓入
             return t * t
         elif curve == "ease_out":
+            # 二次缓出
             return 1 - (1 - t) * (1 - t)
         elif curve == "ease_in_out":
+            # 三次 S 形缓入缓出（smoothstep）
             return t * t * (3 - 2 * t)
-        elif curve == "bezier":
-            # 三阶贝塞尔，控制点约 (0.25, 0) 和 (0.75, 1)
+        elif curve == "ease_in_cubic":
+            # 三次缓入，启动更慢
+            return t * t * t
+        elif curve == "ease_out_cubic":
+            # 三次缓出，结束更柔
             u = 1 - t
-            return 3 * u * u * t * 0.0 + 3 * u * t * t * 1.0 + t * t * t * 1.0
-            # 简化为缓入缓出类贝塞尔
-        elif curve == "random":
-            # 随机扰动的线性，不影响起点终点
-            base = t
-            noise = _rand.uniform(-0.08, 0.08) * (1 - abs(2 * t - 1))
-            return max(0.0, min(1.0, base + noise))
+            return 1 - u * u * u
+        elif curve == "ease_out_back":
+            # 超出回弹：到达终点后稍微超过再回来，像手指自然滑过
+            c1 = 1.70158
+            c3 = c1 + 1
+            return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
+        elif curve == "spring":
+            # 弹性衰减：到达终点附近轻微弹跳，模拟手腕惯性
+            if t == 0.0:
+                return 0.0
+            if t == 1.0:
+                return 1.0
+            c4 = (2 * _math.pi) / 3.0
+            return -(2 ** (10 * t - 10)) * _math.sin((t * 10 - 10.75) * c4)
         else:
-            return t  # linear
+            # linear 及 bezier/humanize 的 fallback
+            return t
+
+    # ─── 拟人化曲线路径生成器 ───
+
+    @staticmethod
+    def _humanize_path(start_x: float, start_y: float,
+                       end_x: float, end_y: float,
+                       steps: int) -> list:
+        """
+        生成拟人化鼠标轨迹点列表（共 steps+1 个点）。
+
+        算法说明：
+        1. 基础速度曲线采用"先加速后减速"的 ease_in_out（smoothstep），模拟人手出发慢-中间快-到达慢；
+        2. 在中段叠加一条轻微贝塞尔弧线（随机控制点），避免走直线；
+        3. 整条路径叠加低频正弦漂移（模拟手腕旋转产生的圆弧感）；
+        4. 在速度快的中段叠加极小高频噪声（模拟手的细微震颤），
+           靠近起终点时噪声趋近于 0，保证起终点精确；
+        5. 速度非均匀：中间步骤间隔短，起步和停止前间隔略长（模拟加减速节奏）。
+
+        返回：[(x, y, sleep_sec), ...]，sleep_sec 为该步之后的等待时长。
+        """
+        import math as _math
+        import random as _rand
+
+        dx = end_x - start_x
+        dy = end_y - start_y
+        dist = _math.hypot(dx, dy)
+
+        # 控制点偏移量随距离动态缩放，短距离不需要大弧度
+        arc_scale = min(dist * 0.18, 60.0)
+        # 随机选择弯曲方向和程度（左弯或右弯，幅度 20-100%）
+        arc_sign = _rand.choice([-1, 1])
+        arc_ratio = _rand.uniform(0.2, 1.0)
+        perp_x = -dy / (dist + 1e-9)
+        perp_y =  dx / (dist + 1e-9)
+        offset = arc_scale * arc_ratio * arc_sign
+        cp_x = (start_x + end_x) / 2 + perp_x * offset
+        cp_y = (start_y + end_y) / 2 + perp_y * offset
+
+        # 低频漂移参数（正弦波幅度 0-3px，频率 0.8-1.5 周期/全程）
+        drift_amp   = _rand.uniform(0.0, min(dist * 0.015, 3.0))
+        drift_freq  = _rand.uniform(0.8, 1.5)
+        drift_phase = _rand.uniform(0, 2 * _math.pi)
+
+        # 高频抖动幅度（在速度峰值区最大 1.5px，靠近端点收缩）
+        jitter_max = min(dist * 0.008, 1.5)
+
+        path = []
+        for i in range(steps + 1):
+            t_raw = i / steps
+
+            # ── 速度曲线：smoothstep + 轻微 ease_in_out 混合 ──
+            t_ease = t_raw * t_raw * (3 - 2 * t_raw)
+
+            # ── 二次贝塞尔弧线位置 ──
+            u = 1 - t_ease
+            bx = u * u * start_x + 2 * u * t_ease * cp_x + t_ease * t_ease * end_x
+            by = u * u * start_y + 2 * u * t_ease * cp_y + t_ease * t_ease * end_y
+
+            # ── 低频漂移（正弦，靠近端点衰减） ──
+            edge_fade = _math.sin(t_raw * _math.pi)  # 0→1→0
+            drift = drift_amp * _math.sin(drift_freq * t_raw * 2 * _math.pi + drift_phase) * edge_fade
+            bx += perp_x * drift
+            by += perp_y * drift
+
+            # ── 高频抖动（中段才有，端点无） ──
+            jitter = jitter_max * edge_fade
+            bx += _rand.uniform(-jitter, jitter)
+            by += _rand.uniform(-jitter, jitter)
+
+            # ── 非均匀步长：中段快、两端慢 ──
+            # speed_factor 越大表示该步耗时越短
+            speed_factor = 0.4 + 0.6 * edge_fade  # 端点 0.4x，中段 1.0x
+            sleep_val = (1.0 / (steps + 1)) / (speed_factor + 1e-9)
+
+            path.append((int(round(bx)), int(round(by)), sleep_val))
+
+        # 归一化 sleep_val 使总和等于 1.0（便于外层乘以 duration）
+        total = sum(p[2] for p in path) or 1.0
+        path = [(p[0], p[1], p[2] / total) for p in path]
+
+        # 强制首尾精确
+        path[0]  = (int(round(start_x)), int(round(start_y)), path[0][2])
+        path[-1] = (int(round(end_x)),   int(round(end_y)),   path[-1][2])
+
+        return path
 
     @staticmethod
     def _bezier_point(t: float, p0: float, p1: float, p2: float, p3: float) -> float:
@@ -3600,7 +3699,7 @@ except Exception as e:
 
     def _mouse_move(self, x: int, y: int, relative: bool, duration: float,
                     curve: str = "linear", jitter: int = 0, rand_offset: int = 0):
-        """移动鼠标到绝对/相对坐标，支持曲线和拟人化抖动"""
+        """移动鼠标到绝对/相对坐标，支持多种曲线和拟人化轨迹"""
         import ctypes, random as _rand
         MOUSEEVENTF_MOVE = 0x0001
         try:
@@ -3618,37 +3717,49 @@ except Exception as e:
                     pt = POINT()
                     ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
                     start_x, start_y = pt.x, pt.y
-                    steps = max(int(duration * 60), 5)
+                    steps = max(int(duration * 60), 8)
 
-                    # 贝塞尔曲线：生成随机控制点产生弧形路径
-                    if curve == "bezier":
+                    import time as _t
+
+                    if curve == "humanize":
+                        # 拟人化：使用专用路径生成器，步长非均匀
+                        path = self._humanize_path(start_x, start_y, x, y, steps)
+                        for px, py, sleep_ratio in path:
+                            self._check_stop()
+                            if jitter > 0:
+                                px += _rand.randint(-jitter, jitter)
+                                py += _rand.randint(-jitter, jitter)
+                            ctypes.windll.user32.SetCursorPos(px, py)
+                            _t.sleep(duration * sleep_ratio)
+                    elif curve == "bezier":
+                        # 贝塞尔：三阶曲线，随机控制点产生自然弧形
                         mid_x = (start_x + x) / 2 + _rand.randint(-80, 80)
                         mid_y = (start_y + y) / 2 + _rand.randint(-80, 80)
                         cx1, cy1 = mid_x, start_y
                         cx2, cy2 = mid_x, y
+                        for i in range(steps + 1):
+                            self._check_stop()
+                            t_raw = i / steps
+                            cx = int(self._bezier_point(t_raw, start_x, cx1, cx2, x))
+                            cy = int(self._bezier_point(t_raw, start_y, cy1, cy2, y))
+                            if jitter > 0 and 0 < i < steps:
+                                cx += _rand.randint(-jitter, jitter)
+                                cy += _rand.randint(-jitter, jitter)
+                            ctypes.windll.user32.SetCursorPos(cx, cy)
+                            _t.sleep(duration / steps)
                     else:
-                        cx1 = cy1 = cx2 = cy2 = None
-
-                    import time as _t
-                    for i in range(steps + 1):
-                        self._check_stop()
-                        t_raw = i / steps
-                        t_ease = self._easing(t_raw, curve) if curve != "bezier" else t_raw
-
-                        if curve == "bezier" and cx1 is not None:
-                            cx = int(self._bezier_point(t_ease, start_x, cx1, cx2, x))
-                            cy = int(self._bezier_point(t_ease, start_y, cy1, cy2, y))
-                        else:
+                        # 其余缓动曲线：均匀步长 + easing
+                        for i in range(steps + 1):
+                            self._check_stop()
+                            t_raw = i / steps
+                            t_ease = self._easing(t_raw, curve)
                             cx = int(start_x + (x - start_x) * t_ease)
                             cy = int(start_y + (y - start_y) * t_ease)
-
-                        # 随机抖动（中间路径段才抖，不影响终点）
-                        if jitter > 0 and 0 < i < steps:
-                            cx += _rand.randint(-jitter, jitter)
-                            cy += _rand.randint(-jitter, jitter)
-
-                        ctypes.windll.user32.SetCursorPos(cx, cy)
-                        _t.sleep(duration / steps)
+                            if jitter > 0 and 0 < i < steps:
+                                cx += _rand.randint(-jitter, jitter)
+                                cy += _rand.randint(-jitter, jitter)
+                            ctypes.windll.user32.SetCursorPos(cx, cy)
+                            _t.sleep(duration / steps)
                 else:
                     ctypes.windll.user32.SetCursorPos(x, y)
             self._log("INFO", f"    鼠标移到 ({x},{y}) relative={relative} curve={curve}")
@@ -3726,7 +3837,7 @@ except Exception as e:
 
     def _mouse_drag(self, from_x: int, from_y: int, to_x: int, to_y: int,
                     button: str, duration: float, curve: str = "linear", jitter: int = 0):
-        """鼠标拖拽，支持缓动曲线和随机抖动。"""
+        """鼠标拖拽，支持多种缓动曲线、贝塞尔弧线、拟人化轨迹和随机抖动。"""
         import ctypes, random as _rand
         import time as _t
 
@@ -3744,35 +3855,45 @@ except Exception as e:
             user32.SetCursorPos(from_x, from_y)
             _t.sleep(0.05)
             user32.mouse_event(dn, 0, 0, 0, 0)
-            steps = max(int(duration * 60), 5)
+            steps = max(int(duration * 60), 8)
 
-            # 贝塞尔路径控制点
-            if curve == "bezier":
+            if curve == "humanize":
+                path = self._humanize_path(from_x, from_y, to_x, to_y, steps)
+                for px, py, sleep_ratio in path:
+                    self._check_stop()
+                    if jitter > 0:
+                        px += _rand.randint(-jitter, jitter)
+                        py += _rand.randint(-jitter, jitter)
+                    user32.SetCursorPos(px, py)
+                    _t.sleep(duration * sleep_ratio)
+            elif curve == "bezier":
                 cx1 = (from_x + to_x) / 2 + _rand.randint(-80, 80)
                 cy1_b = from_y
                 cx2 = (from_x + to_x) / 2 + _rand.randint(-80, 80)
                 cy2_b = to_y
+                for i in range(steps + 1):
+                    self._check_stop()
+                    t_raw = i / steps
+                    cx = int(self._bezier_point(t_raw, from_x, cx1, cx2, to_x))
+                    cy = int(self._bezier_point(t_raw, from_y, cy1_b, cy2_b, to_y))
+                    if jitter > 0 and 0 < i < steps:
+                        cx += _rand.randint(-jitter, jitter)
+                        cy += _rand.randint(-jitter, jitter)
+                    user32.SetCursorPos(cx, cy)
+                    _t.sleep(duration / steps)
             else:
-                cx1 = cy1_b = cx2 = cy2_b = None
-
-            for i in range(steps + 1):
-                self._check_stop()
-                t_raw = i / steps
-                t_ease = self._easing(t_raw, curve) if curve != "bezier" else t_raw
-
-                if curve == "bezier" and cx1 is not None:
-                    cx = int(self._bezier_point(t_ease, from_x, cx1, cx2, to_x))
-                    cy = int(self._bezier_point(t_ease, from_y, cy1_b, cy2_b, to_y))
-                else:
+                for i in range(steps + 1):
+                    self._check_stop()
+                    t_raw = i / steps
+                    t_ease = self._easing(t_raw, curve)
                     cx = int(from_x + (to_x - from_x) * t_ease)
                     cy = int(from_y + (to_y - from_y) * t_ease)
+                    if jitter > 0 and 0 < i < steps:
+                        cx += _rand.randint(-jitter, jitter)
+                        cy += _rand.randint(-jitter, jitter)
+                    user32.SetCursorPos(cx, cy)
+                    _t.sleep(duration / steps)
 
-                if jitter > 0 and 0 < i < steps:
-                    cx += _rand.randint(-jitter, jitter)
-                    cy += _rand.randint(-jitter, jitter)
-
-                user32.SetCursorPos(cx, cy)
-                _t.sleep(duration / steps)
             user32.mouse_event(up, 0, 0, 0, 0)
             self._log("INFO", f"    鼠标拖拽: ({from_x},{from_y}) -> ({to_x},{to_y}) curve={curve}")
         except StopTaskException:

@@ -865,6 +865,9 @@ class SettingsPage(QWidget):
     # ─── 关于 ───
     def _build_about_tab(self) -> QWidget:
         from ..version import VERSION, FULL_NAME
+        from ..updater import (GITHUB_REPO_URL, GITHUB_RELEASES_URL,
+                               GITEE_REPO_URL, GITEE_RELEASES_URL,
+                               ISSUES_URL, WIKI_URL)
         from PyQt6.QtWidgets import QScrollArea, QFrame as _QFrame
         # 外层滚动区域
         scroll = QScrollArea()
@@ -896,6 +899,58 @@ class SettingsPage(QWidget):
         desc.setStyleSheet("font-size: 13px;")
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(desc)
+
+        # ── 版本检测行 ──
+        update_row = QWidget()
+        update_hl = QHBoxLayout(update_row)
+        update_hl.setContentsMargins(0, 4, 0, 4)
+        update_hl.setSpacing(8)
+        update_hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._update_status_lbl = QLabel("点击右侧按钮检查更新")
+        self._update_status_lbl.setStyleSheet("font-size: 12px; color: #6C7086;")
+        update_hl.addWidget(self._update_status_lbl)
+
+        check_btn = QPushButton("🔍 检查更新")
+        check_btn.setFixedWidth(110)
+        check_btn.setFixedHeight(28)
+        check_btn.setStyleSheet(
+            "QPushButton { font-size:11px; border-radius:5px; padding:2px 8px; "
+            "background:#313244; color:#CDD6F4; border:1px solid #45475A; }"
+            "QPushButton:hover { background:#45475A; }"
+        )
+        check_btn.clicked.connect(lambda: self._do_check_update(VERSION))
+        update_hl.addWidget(check_btn)
+
+        self._update_open_btn = QPushButton("📥 前往下载")
+        self._update_open_btn.setFixedWidth(100)
+        self._update_open_btn.setFixedHeight(28)
+        self._update_open_btn.setStyleSheet(
+            "QPushButton { font-size:11px; border-radius:5px; padding:2px 8px; "
+            "background:#1e3a5f; color:#89B4FA; border:1px solid #89B4FA; }"
+            "QPushButton:hover { background:#2a4f7a; }"
+        )
+        self._update_open_btn.setVisible(False)
+        update_hl.addWidget(self._update_open_btn)
+        layout.addWidget(update_row)
+
+        # ── GitHub / Gitee 链接行 ──
+        link_row = QWidget()
+        link_hl = QHBoxLayout(link_row)
+        link_hl.setContentsMargins(0, 0, 0, 0)
+        link_hl.setSpacing(16)
+        link_hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        for icon, text, url in [
+            ("🐙", "GitHub", GITHUB_REPO_URL),
+            ("🦊", "Gitee",  GITEE_REPO_URL),
+            ("📋", "Issues",  ISSUES_URL),
+        ]:
+            lbl = QLabel(f'{icon} <a href="{url}" style="color:#89B4FA;">{text}</a>')
+            lbl.setOpenExternalLinks(True)
+            lbl.setTextFormat(Qt.TextFormat.RichText)
+            lbl.setStyleSheet("font-size: 12px;")
+            link_hl.addWidget(lbl)
+        layout.addWidget(link_row)
 
         # 分隔线
         from PyQt6.QtWidgets import QFrame
@@ -956,7 +1011,7 @@ class SettingsPage(QWidget):
                 "MIT License",
             ),
         ]
-        for icon_name, desc, url, author, lic in oss_items:
+        for icon_name, desc_text, url, author, lic in oss_items:
             oss_box = QWidget()
             oss_layout = QVBoxLayout(oss_box)
             oss_layout.setContentsMargins(12, 6, 12, 6)
@@ -972,7 +1027,7 @@ class SettingsPage(QWidget):
             name_row.setStyleSheet("font-size: 11px;")
             oss_layout.addWidget(name_row)
 
-            desc_row = QLabel(f"{desc}  ·  作者：{author}  ·  {lic}")
+            desc_row = QLabel(f"{desc_text}  ·  作者：{author}  ·  {lic}")
             desc_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
             desc_row.setStyleSheet("font-size: 10px; color: gray;")
             oss_layout.addWidget(desc_row)
@@ -987,6 +1042,47 @@ class SettingsPage(QWidget):
         layout.addStretch()
         scroll.setWidget(page)
         return scroll
+
+    def _do_check_update(self, current_version: str) -> None:
+        """触发后台版本检测，结果通过信号回到主线程"""
+        from ..updater import check_update
+        self._update_status_lbl.setText("⏳ 正在检查更新...")
+        self._update_status_lbl.setStyleSheet("font-size: 12px; color: #CDD6F4;")
+        self._update_open_btn.setVisible(False)
+
+        def _on_result(result: dict):
+            # 通过 QTimer.singleShot 回到主线程更新 UI
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._apply_update_result(result))
+
+        check_update(current_version, callback=_on_result)
+
+    def _apply_update_result(self, result: dict) -> None:
+        """在主线程更新版本检测结果 UI"""
+        import webbrowser
+        if result.get("error"):
+            self._update_status_lbl.setText(f"❌ {result['error']}")
+            self._update_status_lbl.setStyleSheet("font-size: 12px; color: #f87171;")
+            self._update_open_btn.setVisible(False)
+            return
+
+        if result.get("has_update"):
+            tag = result.get("latest_tag", "")
+            self._update_status_lbl.setText(f"🎉 发现新版本 {tag}，点击右侧前往下载")
+            self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
+            url = result.get("download_url") or result.get("html_url", "")
+            self._update_open_btn.setVisible(True)
+            # 断开旧连接再重新连接，防止多次触发
+            try:
+                self._update_open_btn.clicked.disconnect()
+            except Exception:
+                pass
+            self._update_open_btn.clicked.connect(lambda: webbrowser.open(url))
+        else:
+            tag = result.get("latest_tag", "")
+            self._update_status_lbl.setText(f"✅ 已是最新版本（{tag}）")
+            self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
+            self._update_open_btn.setVisible(False)
 
     # ─── 加载/保存 ───
     def _load_config(self):

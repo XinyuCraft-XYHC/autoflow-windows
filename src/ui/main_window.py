@@ -197,6 +197,12 @@ class MainWindow(QMainWindow):
         # ── 初始化插件系统 ──
         QTimer.singleShot(300, self._init_plugin_manager)
 
+        # ── 启动后静默检测更新（延迟 5 秒，不阻塞启动）──
+        QTimer.singleShot(5000, self._silent_check_update)
+
+        # ── 启动后拉取远程公告（延迟 8 秒，避免与更新检测同时发起网络请求）──
+        QTimer.singleShot(8000, self._fetch_remote_announcements)
+
     def _retranslate_ui(self):
         """语言切换后立即刷新所有静态 UI 文字"""
         from ..i18n import tr
@@ -1632,7 +1638,218 @@ class MainWindow(QMainWindow):
             if self._stack.count() > 0:
                 self._stack.setCurrentIndex(0)
 
+    # ─────────────────── 静默更新检测 ───────────────────
 
+    def _silent_check_update(self):
+        """启动后静默检测更新，有新版本时在状态栏显示小提示"""
+        from ..updater import check_update
+        from ..version import VERSION
+
+        def _on_result(result: dict):
+            QTimer.singleShot(0, lambda: self._show_update_tip(result))
+
+        check_update(VERSION, callback=_on_result, timeout=6)
+
+    def _show_update_tip(self, result: dict):
+        """有新版本时在状态栏显示非侵入性提示（点击可打开 Release 页）"""
+        if not result.get("has_update"):
+            return
+        tag = result.get("latest_tag", "")
+        url = result.get("html_url", "")
+        if not hasattr(self, "_update_tip_lbl"):
+            from PyQt6.QtWidgets import QLabel as _QLabel
+            self._update_tip_lbl = _QLabel()
+            self._update_tip_lbl.setOpenExternalLinks(True)
+            self._update_tip_lbl.setTextFormat(Qt.TextFormat.RichText)
+            self._update_tip_lbl.setStyleSheet(
+                "color:#4ade80; font-size:11px; padding:0 8px;"
+            )
+            self.statusBar().addPermanentWidget(self._update_tip_lbl)
+        self._update_tip_lbl.setText(
+            f'🎉 <a href="{url}" style="color:#4ade80;">发现新版本 {tag}，点此下载</a>'
+        )
+        self._update_tip_lbl.setVisible(True)
+
+    # ─────────────────────── 远程公告 ───────────────────────
+
+    def _fetch_remote_announcements(self):
+        """启动后异步拉取远程公告，有未读公告时弹出提示"""
+        from ..updater import fetch_announcements
+
+        def _on_result(announcements: list):
+            QTimer.singleShot(0, lambda: self._show_announcements(announcements))
+
+        fetch_announcements(_on_result, timeout=8)
+
+    def _show_announcements(self, announcements: list):
+        """过滤已读公告，有未读时弹出公告对话框"""
+        if not announcements:
+            return
+
+        read_ids: list = getattr(self._project.config, "read_announcement_ids", [])
+        # pinned 公告每次都显示；普通公告只在未读时显示
+        pending = [
+            ann for ann in announcements
+            if ann.get("pinned", False) or ann.get("id", "") not in read_ids
+        ]
+        if not pending:
+            return
+
+        dlg = _AnnouncementDialog(pending, read_ids, self)
+        dlg.exec()
+
+        # 将非 pinned 的已展示公告标为已读并持久化
+        for ann in pending:
+            ann_id = ann.get("id", "")
+            if ann_id and not ann.get("pinned", False):
+                if ann_id not in read_ids:
+                    read_ids.append(ann_id)
+
+        self._project.config.read_announcement_ids = read_ids
+        self._save_project(silent=True)
+
+
+
+
+
+
+
+
+
+
+
+# ─── 远程公告对话框 ───
+class _AnnouncementDialog(QDialog):
+    """
+    远程公告展示对话框。
+    支持多条公告翻页；level 颜色区分（info=蓝/warning=橙/important=红）。
+    """
+
+    _LEVEL_COLORS = {
+        "info":      "#89B4FA",
+        "warning":   "#FAB387",
+        "important": "#F38BA8",
+    }
+    _LEVEL_LABELS = {
+        "info":      "📢 公告",
+        "warning":   "⚠️ 注意",
+        "important": "🔔 重要",
+    }
+
+    def __init__(self, announcements: list, read_ids: list, parent=None):
+        super().__init__(parent)
+        self._announcements = announcements
+        self._read_ids = read_ids
+        self._idx = 0
+        self.setWindowTitle("AutoFlow 公告")
+        self.setMinimumWidth(480)
+        self.setMinimumHeight(300)
+        self.setModal(True)
+        self._build_ui()
+        self._load_page(0)
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+
+        # 标题行
+        title_row = QHBoxLayout()
+        self._level_lbl = QLabel()
+        self._level_lbl.setStyleSheet("font-size: 14px; font-weight: bold;")
+        title_row.addWidget(self._level_lbl)
+        title_row.addStretch()
+        self._page_lbl = QLabel()
+        self._page_lbl.setStyleSheet("font-size: 11px; color: gray;")
+        title_row.addWidget(self._page_lbl)
+        layout.addLayout(title_row)
+
+        # 主标题
+        self._title_lbl = QLabel()
+        self._title_lbl.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self._title_lbl.setWordWrap(True)
+        layout.addWidget(self._title_lbl)
+
+        # 日期
+        self._date_lbl = QLabel()
+        self._date_lbl.setStyleSheet("font-size: 11px; color: gray;")
+        layout.addWidget(self._date_lbl)
+
+        # 正文
+        from PyQt6.QtWidgets import QTextEdit
+        self._body_edit = QTextEdit()
+        self._body_edit.setReadOnly(True)
+        self._body_edit.setStyleSheet(
+            "QTextEdit { border-radius: 8px; padding: 8px; font-size: 13px; }"
+        )
+        self._body_edit.setMinimumHeight(120)
+        layout.addWidget(self._body_edit)
+
+        # 底部按钮行
+        btn_row = QHBoxLayout()
+
+        self._prev_btn = QPushButton("◀ 上一条")
+        self._prev_btn.setFixedWidth(90)
+        self._prev_btn.clicked.connect(lambda: self._load_page(self._idx - 1))
+        btn_row.addWidget(self._prev_btn)
+
+        self._next_btn = QPushButton("下一条 ▶")
+        self._next_btn.setFixedWidth(90)
+        self._next_btn.clicked.connect(lambda: self._load_page(self._idx + 1))
+        btn_row.addWidget(self._next_btn)
+
+        btn_row.addStretch()
+
+        self._detail_btn = QPushButton("🔗 查看详情")
+        self._detail_btn.setFixedWidth(100)
+        self._detail_btn.setVisible(False)
+        self._detail_btn.clicked.connect(self._open_detail)
+        btn_row.addWidget(self._detail_btn)
+
+        close_btn = QPushButton("✓ 我知道了")
+        close_btn.setFixedWidth(100)
+        close_btn.setDefault(True)
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+
+        layout.addLayout(btn_row)
+
+    def _load_page(self, idx: int):
+        n = len(self._announcements)
+        if idx < 0 or idx >= n:
+            return
+        self._idx = idx
+        ann = self._announcements[idx]
+
+        level = ann.get("level", "info")
+        color = self._LEVEL_COLORS.get(level, "#89B4FA")
+        level_text = self._LEVEL_LABELS.get(level, "📢 公告")
+
+        self._level_lbl.setText(level_text)
+        self._level_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: {color};"
+        )
+        self._page_lbl.setText(f"{idx + 1} / {n}")
+        self._title_lbl.setText(ann.get("title", "（无标题）"))
+        self._title_lbl.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {color};"
+        )
+        date_str = ann.get("date", "")
+        self._date_lbl.setText(f"发布时间：{date_str}" if date_str else "")
+        self._date_lbl.setVisible(bool(date_str))
+        self._body_edit.setPlainText(ann.get("body", ""))
+
+        url = ann.get("url", "")
+        self._detail_btn.setVisible(bool(url))
+        self._detail_url = url
+
+        self._prev_btn.setEnabled(idx > 0)
+        self._next_btn.setEnabled(idx < n - 1)
+
+    def _open_detail(self):
+        import webbrowser
+        if getattr(self, "_detail_url", ""):
+            webbrowser.open(self._detail_url)
 
 
 # ─── 日志 Handler ───

@@ -427,8 +427,8 @@ BLOCK_PARAMS: Dict[str, Dict[str, Any]] = {
         "relative":   {"type": "bool", "label": "相对移动(否=绝对坐标)", "default": False},
         "duration":   {"type": "number_or_var", "label": "移动时长(秒,0=瞬间)", "default": 0},
         "curve":      {"type": "select", "label": "移动曲线", "default": "linear",
-                       "options": ["linear", "ease_in", "ease_out", "ease_in_out", "bezier", "random"],
-                       "option_labels": ["线性", "缓入", "缓出", "缓入缓出", "贝塞尔曲线", "随机曲线"]},
+                       "options": ["linear", "ease_in", "ease_out", "ease_in_out", "ease_in_cubic", "ease_out_cubic", "ease_out_back", "spring", "bezier", "humanize"],
+                       "option_labels": ["线性", "缓入(二次)", "缓出(二次)", "缓入缓出(平滑)", "缓入(三次)", "缓出(三次)", "超出回弹", "弹性", "贝塞尔弧线", "拟人化曲线"]},
         "jitter":     {"type": "number_or_var", "label": "随机抖动半径(像素,0=关闭)", "default": 0},
         "offset":     {"type": "number_or_var", "label": "随机偏移半径(像素,0=关闭)", "default": 0},
     },
@@ -443,8 +443,8 @@ BLOCK_PARAMS: Dict[str, Dict[str, Any]] = {
         "move_first":    {"type": "bool", "label": "先移动到坐标再点击", "default": True},
         "offset":        {"type": "number_or_var", "label": "随机偏移半径(像素,0=关闭)", "default": 0},
         "move_curve":    {"type": "select", "label": "移动曲线(先移动时有效)", "default": "linear",
-                          "options": ["linear", "ease_in", "ease_out", "ease_in_out", "bezier", "random"],
-                          "option_labels": ["线性", "缓入", "缓出", "缓入缓出", "贝塞尔曲线", "随机曲线"]},
+                          "options": ["linear", "ease_in", "ease_out", "ease_in_out", "ease_in_cubic", "ease_out_cubic", "ease_out_back", "spring", "bezier", "humanize"],
+                          "option_labels": ["线性", "缓入(二次)", "缓出(二次)", "缓入缓出(平滑)", "缓入(三次)", "缓出(三次)", "超出回弹", "弹性", "贝塞尔弧线", "拟人化曲线"]},
         "move_duration": {"type": "number_or_var", "label": "移动时长(秒,0=瞬间)", "default": 0},
     },
     "mouse_scroll": {
@@ -459,8 +459,8 @@ BLOCK_PARAMS: Dict[str, Dict[str, Any]] = {
                       "option_labels": ["左键", "右键", "中键(滚轮)"]},
         "duration":  {"type": "number_or_var", "label": "拖拽时长(秒)", "default": 0.5},
         "curve":     {"type": "select", "label": "移动曲线", "default": "linear",
-                      "options": ["linear", "ease_in", "ease_out", "ease_in_out", "bezier", "random"],
-                      "option_labels": ["线性", "缓入", "缓出", "缓入缓出", "贝塞尔曲线", "随机曲线"]},
+                      "options": ["linear", "ease_in", "ease_out", "ease_in_out", "ease_in_cubic", "ease_out_cubic", "ease_out_back", "spring", "bezier", "humanize"],
+                      "option_labels": ["线性", "缓入(二次)", "缓出(二次)", "缓入缓出(平滑)", "缓入(三次)", "缓出(三次)", "超出回弹", "弹性", "贝塞尔弧线", "拟人化曲线"]},
         "jitter":    {"type": "number_or_var", "label": "随机抖动半径(像素,0=关闭)", "default": 0},
     },
     "keymouse_macro": {
@@ -1165,6 +1165,8 @@ class AppConfig:
     ai_temperature: float = 0.7
     ai_max_tokens: int = 2048
     ai_system_prompt: str = ""         # 默认系统提示词（可被功能块覆盖）
+    # 远程公告：已读/永久忽略的公告 ID 列表
+    read_announcement_ids: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()

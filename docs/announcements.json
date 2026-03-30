@@ -1,0 +1,11 @@
+[
+  {
+    "id": "ann_2026_04_v440",
+    "title": "AutoFlow v4.4.0 正式发布",
+    "body": "🎉 AutoFlow v4.4.0 已发布！\n\n本次更新亮点：\n• 鼠标运动曲线全面升级：新增 5 种缓动曲线，「随机曲线」重构为更真实的「拟人化曲线」\n• 自动更新检测：启动后自动检查 GitHub Releases，有新版本在底部显示提示\n• 软件内集成 GitHub / Gitee 仓库链接、Issues 反馈入口\n• 屏幕识别（screen_* 系列）和窗口控件操作（win_* 系列）功能块\n• 多选拖动排序、双击编辑等交互优化\n\n感谢所有用户的支持与反馈！",
+    "level": "info",
+    "date": "2026-03-30",
+    "url": "https://github.com/XinyuCraft-XYHC/autoflow-windows/releases",
+    "pinned": false
+  }
+]
