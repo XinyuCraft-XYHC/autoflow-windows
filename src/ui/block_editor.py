@@ -399,7 +399,8 @@ class WindowPickerEdit(QWidget):
 
         self._btn = QPushButton(tr("widget.pick"))
         self._btn.setObjectName("btn_flat")
-        self._btn.setFixedWidth(66)
+        self._btn.setMinimumWidth(52)
+        self._btn.setFixedHeight(28)
         self._btn.setToolTip(tr("widget.pick_tip"))
         self._btn.clicked.connect(self._start_pick)
         layout.addWidget(self._btn)
@@ -507,14 +508,16 @@ class ProcessWindowPickerEdit(QWidget):
 
         self._btn_pick = QPushButton(tr("widget.pick"))
         self._btn_pick.setObjectName("btn_flat")
-        self._btn_pick.setFixedWidth(66)
+        self._btn_pick.setMinimumWidth(52)
+        self._btn_pick.setFixedHeight(28)
         self._btn_pick.setToolTip(tr("widget.pick_tip"))
         self._btn_pick.clicked.connect(self._start_pick)
         layout.addWidget(self._btn_pick)
 
         self._btn_list = QPushButton(tr("widget.list"))
         self._btn_list.setObjectName("btn_flat")
-        self._btn_list.setFixedWidth(60)
+        self._btn_list.setMinimumWidth(52)
+        self._btn_list.setFixedHeight(28)
         self._btn_list.setToolTip(tr("widget.list_tip"))
         self._btn_list.clicked.connect(self._show_list)
         layout.addWidget(self._btn_list)
@@ -528,11 +531,7 @@ class ProcessWindowPickerEdit(QWidget):
         self._edit.setText(t)
 
     def _start_pick(self):
-        """mode=window/both: 3秒倒计时取前台窗口标题；mode=process: 直接弹出进程列表"""
-        if self._mode == "process":
-            # 进程名模式直接弹列表，更精准
-            self._show_list()
-            return
+        """3秒倒计时，读取前台窗口的标题（mode=window/both）或进程名（mode=process）"""
         top = self
         while top.parent():
             top = top.parent()
@@ -557,11 +556,23 @@ class ProcessWindowPickerEdit(QWidget):
         try:
             import ctypes
             hwnd = ctypes.windll.user32.GetForegroundWindow()
-            buf = ctypes.create_unicode_buffer(256)
-            ctypes.windll.user32.GetWindowTextW(hwnd, buf, 256)
-            title = buf.value.strip()
-            if title and self._mode in ("window", "both"):
-                self._edit.setText(title)
+            if self._mode == "process":
+                # 进程名模式：读取前台窗口所属进程名
+                pid = ctypes.c_ulong()
+                ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                try:
+                    import psutil
+                    proc_name = psutil.Process(pid.value).name()
+                    if proc_name:
+                        self._edit.setText(proc_name)
+                except Exception:
+                    pass
+            else:
+                buf = ctypes.create_unicode_buffer(256)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, 256)
+                title = buf.value.strip()
+                if title and self._mode in ("window", "both"):
+                    self._edit.setText(title)
         except Exception:
             pass
         self._btn_pick.setEnabled(True)
@@ -2051,6 +2062,7 @@ class BlockCard(QFrame):
             img = p.get("image_path", "")
             timeout = p.get("timeout", 30)
             name = os.path.basename(img) if img else "未选择图片"
+            parts.append(f"{name}  超时={timeout}s")
         # ── 窗口图片识别 ──
         elif bt == "win_find_image":
             img = p.get("image_path", "")
@@ -2066,7 +2078,6 @@ class BlockCard(QFrame):
             btn_map = {"left": "左键", "right": "右键", "middle": "中键"}
             name = os.path.basename(img) if img else "未选择图片"
             parts.append(f"{win or '未指定窗口'} → {name}  {btn_map.get(btn, btn)}  精度={conf}")
-            parts.append(f"{name}  超时={timeout}s")
         elif bt == "screen_screenshot_region":
             region = p.get("region", "")
             save_path = p.get("save_path", "region_shot.png")
@@ -2326,7 +2337,8 @@ class BlockEditDialog(QDialog):
 
             btn_cls = QPushButton("选择")
             btn_cls.setObjectName("btn_flat")
-            btn_cls.setFixedWidth(52)
+            btn_cls.setMinimumWidth(52)
+            btn_cls.setFixedHeight(28)
             btn_cls.setToolTip("弹出窗口列表，点选目标窗口自动识别类名（同时回填进程名）")
             btn_cls.clicked.connect(_do_pick_class)
             hl.addWidget(edit_cls)
@@ -2397,14 +2409,6 @@ class BlockEditDialog(QDialog):
                 "win_find_image", "win_click_image"
             ] and key == "image_path")
             
-            if is_screen_image_param:
-                # 添加截图按钮
-                btn_screenshot = QPushButton("截图")
-                btn_screenshot.setObjectName("btn_flat")
-                btn_screenshot.setMinimumWidth(52)
-                btn_screenshot.clicked.connect(lambda: self._capture_screenshot(edit))
-                hl.addWidget(btn_screenshot)
-            
             btn = QPushButton("浏览")
             btn.setObjectName("btn_flat")
             btn.setMinimumWidth(52)
@@ -2412,8 +2416,14 @@ class BlockEditDialog(QDialog):
                 btn.clicked.connect(lambda: self._pick_folder(edit))
             else:
                 btn.clicked.connect(lambda: self._pick_file(edit))
-            
+
             hl.addWidget(edit)
+            if is_screen_image_param:
+                btn_screenshot = QPushButton("截图")
+                btn_screenshot.setObjectName("btn_flat")
+                btn_screenshot.setMinimumWidth(52)
+                btn_screenshot.clicked.connect(lambda checked=False, e=edit: self._capture_screenshot(e))
+                hl.addWidget(btn_screenshot)
             hl.addWidget(btn)
             return row
         elif ptype == "app_launcher_picker":
@@ -2534,193 +2544,215 @@ class BlockEditDialog(QDialog):
 
     def _capture_screenshot(self, edit: QLineEdit):
         """框选截图并保存到指定路径。
-        使用 QScreen.grabWindow(0) 截全屏（正确处理 DPI 缩放），
-        松开鼠标立即弹出保存对话框。
+        先最小化所有 AutoFlow 窗口，等待动画完成后再截屏框选，
+        框选完成后恢复窗口并弹保存对话框。
         """
         import os, datetime
         from PyQt6.QtWidgets import QDialog, QApplication
-        from PyQt6.QtCore import Qt, QRect, QPoint, QSize
+        from PyQt6.QtCore import Qt, QRect, QPoint, QSize, QTimer as _QTimer
         from PyQt6.QtGui import QPainter, QPixmap, QColor, QPen, QFont, QCursor
 
-        app = QApplication.instance()
+        # ── 0. 先最小化顶层窗口，等待窗口动画完成再截图 ──
+        top = self
+        while top.parent():
+            top = top.parent()
+        _was_minimized = False
+        if hasattr(top, 'showMinimized'):
+            top.showMinimized()
+            _was_minimized = True
 
-        # ── 1. 先截全屏（在弹出遮罩之前，正确处理 DPI）──
-        # 枚举所有屏幕，分别截图，再拼成虚拟桌面大图
-        screen_shots = []  # (geometry_in_logical, pixmap_in_physical)
-        for scr in app.screens():
-            pm = scr.grabWindow(0)   # 物理像素截图
-            screen_shots.append((scr.geometry(), pm))
+        def _do_capture():
+            app = QApplication.instance()
 
-        # 计算虚拟桌面逻辑坐标范围
-        total_logical = QRect()
-        for geom, _ in screen_shots:
-            total_logical = total_logical.united(geom)
+            # ── 1. 先截全屏（在弹出遮罩之前，正确处理 DPI）──
+            # 枚举所有屏幕，分别截图，再拼成虚拟桌面大图
+            screen_shots = []  # (geometry_in_logical, pixmap_in_physical)
+            for scr in app.screens():
+                pm = scr.grabWindow(0)   # 物理像素截图
+                screen_shots.append((scr.geometry(), pm))
 
-        # 创建以物理像素为单位的拼接画布
-        # 取主屏 DPR 作为整体 devicePixelRatio
-        main_dpr = app.primaryScreen().devicePixelRatio()
-        canvas_w = int(total_logical.width()  * main_dpr)
-        canvas_h = int(total_logical.height() * main_dpr)
-        full_pixmap = QPixmap(canvas_w, canvas_h)
-        full_pixmap.fill(QColor(0, 0, 0))
-        painter = QPainter(full_pixmap)
-        for geom, pm in screen_shots:
-            # 计算该屏在画布中的位置（物理像素）
-            px = int((geom.x() - total_logical.x()) * main_dpr)
-            py = int((geom.y() - total_logical.y()) * main_dpr)
-            painter.drawPixmap(px, py, pm)
-        painter.end()
+            # 计算虚拟桌面逻辑坐标范围
+            total_logical = QRect()
+            for geom, _ in screen_shots:
+                total_logical = total_logical.united(geom)
 
-        # ── 2. 全屏遮罩对话框 ──
-        class ScreenCaptureDialog(QDialog):
-            def __init__(self_d):
-                super().__init__(None)
-                self_d.setWindowFlags(
-                    Qt.WindowType.FramelessWindowHint |
-                    Qt.WindowType.WindowStaysOnTopHint |
-                    Qt.WindowType.Tool
-                )
-                self_d.setCursor(QCursor(Qt.CursorShape.CrossCursor))
-                self_d.setMouseTracking(True)
-                self_d.setGeometry(total_logical)
-                self_d._offset = total_logical.topLeft()
+            # 创建以物理像素为单位的拼接画布
+            # 取主屏 DPR 作为整体 devicePixelRatio
+            main_dpr = app.primaryScreen().devicePixelRatio()
+            canvas_w = int(total_logical.width()  * main_dpr)
+            canvas_h = int(total_logical.height() * main_dpr)
+            full_pixmap = QPixmap(canvas_w, canvas_h)
+            full_pixmap.fill(QColor(0, 0, 0))
+            painter = QPainter(full_pixmap)
+            for geom, pm in screen_shots:
+                # 计算该屏在画布中的位置（物理像素）
+                px = int((geom.x() - total_logical.x()) * main_dpr)
+                py = int((geom.y() - total_logical.y()) * main_dpr)
+                painter.drawPixmap(px, py, pm)
+            painter.end()
 
-                self_d._start    = QPoint()
-                self_d._end      = QPoint()
-                self_d._dragging = False
-                self_d._has_sel  = False   # 松手后置 True
-                self_d.selection_rect = None   # QRect（逻辑坐标，相对虚拟桌面原点）
+            # ── 2. 全屏遮罩对话框 ──
+            class ScreenCaptureDialog(QDialog):
+                def __init__(self_d):
+                    super().__init__(None)
+                    self_d.setWindowFlags(
+                        Qt.WindowType.FramelessWindowHint |
+                        Qt.WindowType.WindowStaysOnTopHint |
+                        Qt.WindowType.Tool
+                    )
+                    self_d.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+                    self_d.setMouseTracking(True)
+                    self_d.setGeometry(total_logical)
+                    self_d._offset = total_logical.topLeft()
 
-                # 背景：把物理像素画布缩放成逻辑像素大小铺满窗口
-                self_d._bg = full_pixmap.scaled(
-                    total_logical.width(), total_logical.height(),
-                    Qt.AspectRatioMode.IgnoreAspectRatio,
-                    Qt.TransformationMode.FastTransformation
-                )
-
-            def showEvent(self_d, ev):
-                super().showEvent(ev)
-                self_d.activateWindow()
-                self_d.setFocus()
-
-            def _sel_rect(self_d):
-                """返回当前选区（窗口本地坐标）"""
-                x1 = min(self_d._start.x(), self_d._end.x())
-                y1 = min(self_d._start.y(), self_d._end.y())
-                x2 = max(self_d._start.x(), self_d._end.x())
-                y2 = max(self_d._start.y(), self_d._end.y())
-                return QRect(x1, y1, x2 - x1, y2 - y1)
-
-            def paintEvent(self_d, event):
-                p = QPainter(self_d)
-                # 绘制背景截图
-                p.drawPixmap(0, 0, self_d._bg)
-                # 半透明遮罩
-                p.fillRect(self_d.rect(), QColor(0, 0, 0, 80))
-
-                # 如果有选区（拖动中 or 已松手）
-                if (self_d._dragging or self_d._has_sel) and not self_d._start.isNull():
-                    sel = self_d._sel_rect()
-                    if sel.width() > 2 and sel.height() > 2:
-                        # 镂空：显示原始画面
-                        p.drawPixmap(sel, self_d._bg, sel)
-                        # 蓝色边框
-                        p.setPen(QPen(QColor(30, 144, 255), 2))
-                        p.drawRect(sel)
-                        # 尺寸提示
-                        info = f"{sel.width()} x {sel.height()}"
-                        font = QFont()
-                        font.setPointSize(10)
-                        font.setBold(True)
-                        p.setFont(font)
-                        p.setPen(QColor(255, 255, 255))
-                        tx = sel.left()
-                        ty = sel.top() - 6 if sel.top() > 22 else sel.bottom() + 18
-                        fm = p.fontMetrics()
-                        tw = fm.horizontalAdvance(info)
-                        p.fillRect(tx, ty - 14, tw + 8, 18, QColor(0, 0, 0, 160))
-                        p.drawText(tx + 4, ty, info)
-
-                # 底部提示
-                tip = "拖动框选  |  松开鼠标确认  |  Esc 取消"
-                font2 = QFont()
-                font2.setPointSize(10)
-                p.setFont(font2)
-                fm2 = p.fontMetrics()
-                tw2 = fm2.horizontalAdvance(tip)
-                p.fillRect(self_d.width() - tw2 - 20, self_d.height() - 34,
-                           tw2 + 16, 24, QColor(0, 0, 0, 160))
-                p.setPen(QColor(255, 255, 255))
-                p.drawText(self_d.width() - tw2 - 12, self_d.height() - 16, tip)
-
-            def mousePressEvent(self_d, ev):
-                if ev.button() == Qt.MouseButton.LeftButton:
-                    self_d._start    = ev.pos()
-                    self_d._end      = ev.pos()
-                    self_d._dragging = True
-                    self_d._has_sel  = False
-                    self_d.update()
-
-            def mouseMoveEvent(self_d, ev):
-                if self_d._dragging:
-                    self_d._end = ev.pos()
-                    self_d.update()
-
-            def mouseReleaseEvent(self_d, ev):
-                if ev.button() == Qt.MouseButton.LeftButton and self_d._dragging:
-                    self_d._end      = ev.pos()
+                    self_d._start    = QPoint()
+                    self_d._end      = QPoint()
                     self_d._dragging = False
-                    self_d._has_sel  = True
-                    sel = self_d._sel_rect()
-                    if sel.width() > 5 and sel.height() > 5:
-                        # 转换为虚拟桌面逻辑坐标
-                        self_d.selection_rect = QRect(
-                            sel.x() + self_d._offset.x(),
-                            sel.y() + self_d._offset.y(),
-                            sel.width(), sel.height()
-                        )
-                        self_d.accept()
-                    else:
-                        # 太小，重置
-                        self_d._has_sel = False
+                    self_d._has_sel  = False   # 松手后置 True
+                    self_d.selection_rect = None   # QRect（逻辑坐标，相对虚拟桌面原点）
+
+                    # 背景：把物理像素画布缩放成逻辑像素大小铺满窗口
+                    self_d._bg = full_pixmap.scaled(
+                        total_logical.width(), total_logical.height(),
+                        Qt.AspectRatioMode.IgnoreAspectRatio,
+                        Qt.TransformationMode.FastTransformation
+                    )
+
+                def showEvent(self_d, ev):
+                    super().showEvent(ev)
+                    self_d.activateWindow()
+                    self_d.setFocus()
+
+                def _sel_rect(self_d):
+                    """返回当前选区（窗口本地坐标）"""
+                    x1 = min(self_d._start.x(), self_d._end.x())
+                    y1 = min(self_d._start.y(), self_d._end.y())
+                    x2 = max(self_d._start.x(), self_d._end.x())
+                    y2 = max(self_d._start.y(), self_d._end.y())
+                    return QRect(x1, y1, x2 - x1, y2 - y1)
+
+                def paintEvent(self_d, event):
+                    p = QPainter(self_d)
+                    # 绘制背景截图
+                    p.drawPixmap(0, 0, self_d._bg)
+                    # 半透明遮罩
+                    p.fillRect(self_d.rect(), QColor(0, 0, 0, 80))
+
+                    # 如果有选区（拖动中 or 已松手）
+                    if (self_d._dragging or self_d._has_sel) and not self_d._start.isNull():
+                        sel = self_d._sel_rect()
+                        if sel.width() > 2 and sel.height() > 2:
+                            # 镂空：显示原始画面
+                            p.drawPixmap(sel, self_d._bg, sel)
+                            # 蓝色边框
+                            p.setPen(QPen(QColor(30, 144, 255), 2))
+                            p.drawRect(sel)
+                            # 尺寸提示
+                            info = f"{sel.width()} x {sel.height()}"
+                            font = QFont()
+                            font.setPointSize(10)
+                            font.setBold(True)
+                            p.setFont(font)
+                            p.setPen(QColor(255, 255, 255))
+                            tx = sel.left()
+                            ty = sel.top() - 6 if sel.top() > 22 else sel.bottom() + 18
+                            fm = p.fontMetrics()
+                            tw = fm.horizontalAdvance(info)
+                            p.fillRect(tx, ty - 14, tw + 8, 18, QColor(0, 0, 0, 160))
+                            p.drawText(tx + 4, ty, info)
+
+                    # 底部提示
+                    tip = "拖动框选  |  松开鼠标确认  |  Esc 取消"
+                    font2 = QFont()
+                    font2.setPointSize(10)
+                    p.setFont(font2)
+                    fm2 = p.fontMetrics()
+                    tw2 = fm2.horizontalAdvance(tip)
+                    p.fillRect(self_d.width() - tw2 - 20, self_d.height() - 34,
+                               tw2 + 16, 24, QColor(0, 0, 0, 160))
+                    p.setPen(QColor(255, 255, 255))
+                    p.drawText(self_d.width() - tw2 - 12, self_d.height() - 16, tip)
+
+                def mousePressEvent(self_d, ev):
+                    if ev.button() == Qt.MouseButton.LeftButton:
+                        self_d._start    = ev.pos()
+                        self_d._end      = ev.pos()
+                        self_d._dragging = True
+                        self_d._has_sel  = False
                         self_d.update()
 
-            def keyPressEvent(self_d, ev):
-                if ev.key() == Qt.Key.Key_Escape:
-                    self_d.reject()
+                def mouseMoveEvent(self_d, ev):
+                    if self_d._dragging:
+                        self_d._end = ev.pos()
+                        self_d.update()
 
-        dlg = ScreenCaptureDialog()
-        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selection_rect:
-            return
+                def mouseReleaseEvent(self_d, ev):
+                    if ev.button() == Qt.MouseButton.LeftButton and self_d._dragging:
+                        self_d._end      = ev.pos()
+                        self_d._dragging = False
+                        self_d._has_sel  = True
+                        sel = self_d._sel_rect()
+                        if sel.width() > 5 and sel.height() > 5:
+                            # 转换为虚拟桌面逻辑坐标
+                            self_d.selection_rect = QRect(
+                                sel.x() + self_d._offset.x(),
+                                sel.y() + self_d._offset.y(),
+                                sel.width(), sel.height()
+                            )
+                            self_d.accept()
+                        else:
+                            # 太小，重置
+                            self_d._has_sel = False
+                            self_d.update()
 
-        sel = dlg.selection_rect
+                def keyPressEvent(self_d, ev):
+                    if ev.key() == Qt.Key.Key_Escape:
+                        self_d.reject()
 
-        # ── 3. 从全屏拼合图中裁剪对应区域 ──
-        # sel 是逻辑坐标（相对虚拟桌面），需换算成物理像素
-        lx = sel.x() - total_logical.x()
-        ly = sel.y() - total_logical.y()
-        crop_x = int(lx * main_dpr)
-        crop_y = int(ly * main_dpr)
-        crop_w = max(int(sel.width()  * main_dpr), 1)
-        crop_h = max(int(sel.height() * main_dpr), 1)
-        cropped = full_pixmap.copy(crop_x, crop_y, crop_w, crop_h)
+            cap_dlg = ScreenCaptureDialog()
+            if cap_dlg.exec() != QDialog.DialogCode.Accepted or not cap_dlg.selection_rect:
+                # 取消截图，恢复窗口
+                if _was_minimized and hasattr(top, 'showNormal'):
+                    top.showNormal()
+                    top.activateWindow()
+                return
 
-        # ── 4. 保存对话框 ──
-        default_name = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        pictures_dir = os.path.join(os.path.expanduser("~"), "Pictures")
-        os.makedirs(pictures_dir, exist_ok=True)
-        save_path, _ = QFileDialog.getSaveFileName(
-            self, "保存截图",
-            os.path.join(pictures_dir, default_name),
-            "PNG 图像 (*.png);;JPEG 图像 (*.jpg);;所有文件 (*.*)"
-        )
-        if not save_path:
-            return
-        if not save_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-            save_path += '.png'
+            sel = cap_dlg.selection_rect
 
-        cropped.save(save_path)
-        edit.setText(save_path)
+            # ── 3. 从全屏拼合图中裁剪对应区域 ──
+            # sel 是逻辑坐标（相对虚拟桌面），需换算成物理像素
+            lx = sel.x() - total_logical.x()
+            ly = sel.y() - total_logical.y()
+            crop_x = int(lx * main_dpr)
+            crop_y = int(ly * main_dpr)
+            crop_w = max(int(sel.width()  * main_dpr), 1)
+            crop_h = max(int(sel.height() * main_dpr), 1)
+            cropped = full_pixmap.copy(crop_x, crop_y, crop_w, crop_h)
+
+            # 恢复窗口（先恢复，再弹保存对话框）
+            if _was_minimized and hasattr(top, 'showNormal'):
+                top.showNormal()
+                top.activateWindow()
+
+            # ── 4. 保存对话框 ──
+            default_name = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            pictures_dir = os.path.join(os.path.expanduser("~"), "Pictures")
+            os.makedirs(pictures_dir, exist_ok=True)
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "保存截图",
+                os.path.join(pictures_dir, default_name),
+                "PNG 图像 (*.png);;JPEG 图像 (*.jpg);;所有文件 (*.*)"
+            )
+            if not save_path:
+                return
+            if not save_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                save_path += '.png'
+
+            cropped.save(save_path)
+            edit.setText(save_path)
+
+        # 延时 400ms 等待最小化动画完成后再截图
+        _QTimer.singleShot(400, _do_capture)
 
     @staticmethod
     def _ocr_pixmap(pixmap) -> str:
