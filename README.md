@@ -2,7 +2,7 @@
 
 > **积木式编排 · 触发器驱动 · AI 加持 · 零编程基础**
 
-[![Version](https://img.shields.io/badge/version-v4.10.0-blue)](https://github.com/XinyuCraft-XYHC/autoflow-windows/releases)
+[![Version](https://img.shields.io/badge/version-v4.15.0-blue)](https://github.com/XinyuCraft-XYHC/autoflow-windows/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)](https://github.com/XinyuCraft-XYHC/autoflow-windows)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://github.com/)
 [![License](https://img.shields.io/badge/license-BSL%201.1-green)](LICENSE)
