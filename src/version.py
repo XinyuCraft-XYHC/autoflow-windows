@@ -499,8 +499,20 @@
 #   - 原逻辑所有源都依赖 download_url 非空，导致 Gitee 备用 API 返回的 Release 缺少 assets
 #     时 sources 列表为空，直接弹"未找到可用下载链接"弹窗；
 
-VERSION       = "4.11.2"
-VERSION_TUPLE = (4, 11, 2)
+# v4.12.0  2026-03-30
+#   【命令行接口 + 桌面快捷方式】
+#   - 新增命令行参数 --run-task <task_id>：无头模式执行指定任务，不显示主窗口；
+#     适合 CMD / PowerShell / bat 脚本 / 计划任务调用：
+#       AutoFlow.exe --run-task a1b2c3d4
+#       AutoFlow.exe --run-task a1b2c3d4 "C:\path\to\project.afp"
+#     任务完成后自动退出（成功=0，未找到=1，项目失败=2，执行出错=3）；
+#   - 右键任务列表中的任务，新增「🖥 创建桌面快捷方式」菜单项：
+#     在桌面生成以任务名命名的 .lnk 快捷方式，双击即可直接运行该任务；
+#     快捷方式使用 AutoFlow 图标，不打开主界面，快速执行后自动退出；
+#     同时弹窗展示对应的命令行命令，方便用户复制使用；
+
+VERSION       = "4.12.0"
+VERSION_TUPLE = (4, 12, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

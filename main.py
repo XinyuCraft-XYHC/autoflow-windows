@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 import json
+import threading
 
 # 确保能找到 src 包
 sys.path.insert(0, os.path.dirname(__file__))
@@ -57,6 +58,101 @@ def _relaunch_as_admin() -> bool:
     )
     # ShellExecuteW 返回值 > 32 表示成功触发
     return int(ret) > 32
+
+
+# ──────────────────────────────────────────────────────────────
+# 无头任务执行模式（--run-task <task_id>）
+# ──────────────────────────────────────────────────────────────
+
+def _run_task_headless(task_id: str, project_path: str | None = None) -> int:
+    """
+    无头模式：加载项目 → 找到指定 task_id 的任务 → 运行 → 等待完成 → 返回退出码。
+
+    不显示任何 Qt 窗口，专供命令行 / 桌面快捷方式调用。
+    返回：0=成功，1=任务未找到，2=项目加载失败，3=执行中出错
+    """
+    # 确定项目路径
+    if not project_path:
+        _local = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        default_path = os.path.join(
+            _local, "XinyuCraft", "AutoFlow", "Project", "autoflow_default.afp"
+        )
+        _old_default = os.path.join(os.path.expanduser("~"), "autoflow_default.afp")
+        if os.path.exists(default_path):
+            project_path = default_path
+        elif os.path.exists(_old_default):
+            project_path = _old_default
+
+    if not project_path or not os.path.isfile(project_path):
+        print(f"[AutoFlow] 错误：项目文件不存在: {project_path}", file=sys.stderr)
+        return 2
+
+    # 加载项目
+    try:
+        from src.engine.models import Project, AppConfig
+        project = Project.load(project_path)
+    except Exception as e:
+        print(f"[AutoFlow] 错误：项目加载失败: {e}", file=sys.stderr)
+        return 2
+
+    # 查找任务
+    task = next((t for t in project.tasks if t.id == task_id), None)
+    if not task:
+        print(f"[AutoFlow] 错误：未找到任务 ID: {task_id}", file=sys.stderr)
+        print(f"[AutoFlow] 项目中的任务：", file=sys.stderr)
+        for t in project.tasks:
+            print(f"  {t.id}  {t.name}", file=sys.stderr)
+        return 1
+
+    print(f"[AutoFlow] 正在运行任务: {task.name} ({task.id})")
+
+    # 加载应用配置（读取 AI / 热键等配置）
+    try:
+        _local = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        cfg_path = os.path.join(_local, "XinyuCraft", "AutoFlow", "app_config.json")
+        config = project.config
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg_data = json.load(f)
+            for k, v in cfg_data.items():
+                if hasattr(config, k):
+                    try:
+                        setattr(config, k, v)
+                    except Exception:
+                        pass
+    except Exception:
+        config = project.config
+
+    # 执行任务（同步等待）
+    from src.engine.runner import TaskRunner
+
+    done_event = threading.Event()
+    exit_code   = [0]
+    log_lines   = []
+
+    def on_log(level: str, msg: str):
+        print(f"[AutoFlow] [{level.upper()}] {msg}")
+        log_lines.append(msg)
+
+    def on_finished(tid: str, success: bool):
+        if not success:
+            print(f"[AutoFlow] 任务执行失败", file=sys.stderr)
+            exit_code[0] = 3
+        else:
+            print(f"[AutoFlow] 任务完成: {task.name}")
+        done_event.set()
+
+    runner = TaskRunner(
+        task=task,
+        config=config,
+        global_variables=dict(project.global_variables),
+        on_log=on_log,
+        on_finished=on_finished,
+    )
+    runner.start()
+    done_event.wait()   # 阻塞直到任务完成
+
+    return exit_code[0]
 
 
 def _check_and_elevate():
@@ -247,6 +343,30 @@ def _apply_startup_language():
 
 
 def main():
+    # ── --run-task 无头模式（命令行直接运行任务，不显示 UI）──
+    # 格式：AutoFlow.exe --run-task <task_id> [project.afp]
+    # 示例：AutoFlow.exe --run-task a1b2c3d4
+    #       AutoFlow.exe --run-task a1b2c3d4 "C:\path\to\project.afp"
+    if "--run-task" in sys.argv:
+        idx = sys.argv.index("--run-task")
+        if idx + 1 >= len(sys.argv):
+            print("[AutoFlow] 错误：--run-task 后必须跟任务 ID", file=sys.stderr)
+            sys.exit(1)
+        _headless_task_id = sys.argv[idx + 1]
+        # 可选：从剩余参数中找 .afp 路径
+        _headless_project = None
+        for _a in sys.argv[1:]:
+            if not _a.startswith("--") and _a.endswith(".afp") and os.path.isfile(_a):
+                _headless_project = _a
+                break
+        # 语言目录（Runner 可能用到日志文字，此处仅保证目录存在）
+        try:
+            _local = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+            _ensure_language_dir(_local)
+        except Exception:
+            pass
+        sys.exit(_run_task_headless(_headless_task_id, _headless_project))
+
     # ── 管理员权限检查（必须在 QApplication 创建之前）──
     # AutoFlow 需要管理员权限才能向高权限程序注入鼠标/键盘操作（UIPI 机制）
     _check_and_elevate()

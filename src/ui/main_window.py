@@ -1325,8 +1325,97 @@ class MainWindow(QMainWindow):
             run_action.setEnabled(False)
             menu.addAction("停止运行", lambda: self._stop_task(task.id))
         menu.addSeparator()
+        menu.addAction("🖥 创建桌面快捷方式", lambda: self._create_desktop_shortcut(task))
+        menu.addSeparator()
         menu.addAction("删除任务", lambda: self._delete_task(task))
         menu.exec(self._task_list.mapToGlobal(pos))
+
+    def _create_desktop_shortcut(self, task):
+        """
+        为指定任务在桌面创建 .lnk 快捷方式。
+        快捷方式双击后直接调用 AutoFlow --run-task <task_id>，无需打开主界面。
+        """
+        import unicodedata
+
+        # ── 确定 AutoFlow 可执行路径 ──
+        if getattr(sys, "frozen", False):
+            exe_path = sys.argv[0]          # 打包环境：真实 .exe 路径
+        else:
+            # 开发环境：用 python.exe + main.py
+            exe_path   = sys.executable
+            _main_py   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "..", "..", "main.py")
+            _main_py   = os.path.normpath(_main_py)
+
+        # ── 构建参数字符串 ──
+        if getattr(sys, "frozen", False):
+            arguments = f"--run-task {task.id}"
+        else:
+            arguments = f'"{_main_py}" --run-task {task.id}'
+
+        # ── 桌面路径 ──
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        if not os.path.isdir(desktop):
+            # 兼容中文 Windows "桌面" 路径
+            import ctypes
+            CSIDL_DESKTOPDIRECTORY = 0x0010
+            buf = ctypes.create_unicode_buffer(260)
+            ctypes.windll.shell32.SHGetFolderPathW(0, CSIDL_DESKTOPDIRECTORY, 0, 0, buf)
+            desktop = buf.value
+
+        # ── 净化任务名为合法文件名 ──
+        safe_name = "".join(
+            c for c in task.name
+            if unicodedata.category(c) not in ("Cc", "Cf")
+            and c not in r'\/:*?"<>|'
+        ).strip() or task.id
+        lnk_path = os.path.join(desktop, f"{safe_name}.lnk")
+
+        # ── 用 pywin32 创建 .lnk ──
+        try:
+            import win32com.client
+            shell   = win32com.client.Dispatch("WScript.Shell")
+            shortcut = shell.CreateShortcut(lnk_path)
+            shortcut.TargetPath   = exe_path
+            shortcut.Arguments    = arguments
+            shortcut.WorkingDirectory = os.path.dirname(exe_path)
+            shortcut.Description  = f"AutoFlow 任务: {task.name}"
+
+            # 图标：优先使用 autoflow.ico
+            _base_dir  = os.path.dirname(os.path.abspath(__file__))
+            _ico_path  = os.path.normpath(
+                os.path.join(_base_dir, "..", "..", "assets", "autoflow.ico"))
+            if os.path.exists(_ico_path):
+                shortcut.IconLocation = _ico_path + ",0"
+
+            shortcut.save()
+
+            from PyQt6.QtWidgets import QMessageBox
+            msg = QMessageBox(self)
+            msg.setWindowTitle("桌面快捷方式已创建")
+            msg.setText(
+                f"已在桌面创建快捷方式：\n\n"
+                f"📌 {safe_name}.lnk\n\n"
+                f"双击该快捷方式可直接运行任务「{task.name}」，无需打开 AutoFlow 主界面。\n\n"
+                f"提示：命令行也可使用以下命令运行此任务：\n"
+                f"  AutoFlow.exe --run-task {task.id}"
+            )
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.exec()
+
+        except ImportError:
+            # pywin32 未安装时回退提示
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "缺少依赖",
+                "创建快捷方式需要 pywin32 库。\n"
+                "请在命令行执行：pip install pywin32\n\n"
+                "或使用以下命令行参数手动运行任务：\n"
+                f"  AutoFlow.exe --run-task {task.id}"
+            )
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "创建失败", f"创建桌面快捷方式时出错：\n{e}")
 
     def _rename_task(self, task: Task):
         name, ok = QInputDialog.getText(self, "重命名任务", "新名称：", text=task.name)
