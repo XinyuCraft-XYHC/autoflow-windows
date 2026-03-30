@@ -679,6 +679,9 @@ class MainWindow(QMainWindow):
         self._tray.setToolTip("AutoFlow — 智能自动化工具")
         self._tray.activated.connect(self._on_tray_activated)
         self._tray.show()
+        
+        # 初始填充任务列表
+        self._refresh_tray_menu()
 
     def _refresh_tray_menu(self):
         self._tray_run_menu.clear()
@@ -2278,13 +2281,13 @@ class _AnnouncementDialog(QDialog):
         btn_row.addStretch()
 
         self._detail_btn = QPushButton("🔗 查看详情")
-        self._detail_btn.setFixedWidth(100)
+        self._detail_btn.setMinimumWidth(100)
         self._detail_btn.setVisible(False)
         self._detail_btn.clicked.connect(self._open_detail)
         btn_row.addWidget(self._detail_btn)
 
         close_btn = QPushButton("✓ 我知道了")
-        close_btn.setFixedWidth(100)
+        close_btn.setMinimumWidth(100)
         close_btn.setDefault(True)
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)

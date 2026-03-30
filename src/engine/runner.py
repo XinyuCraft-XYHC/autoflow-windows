@@ -116,7 +116,6 @@ class TaskRunner(threading.Thread):
 
     def _log(self, level: str, msg: str):
         logger.log(getattr(logging, level, logging.INFO), "[%s] %s", self.task.name, msg)
-        self.on_log(level, f"[{self.task.name}] {msg}")
 
     def run(self):
         try:
@@ -947,27 +946,33 @@ class TaskRunner(threading.Thread):
 
         elif bt == "win_click_control":
             win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
             ctrl_title   = resolve_value(p.get("control_title", ""), self.variables).strip()
             ctrl_type    = p.get("control_type", "Button")
             double_click = p.get("double_click", False)
             timeout_wc   = float(resolve_number(p.get("timeout", 5), self.variables))
-            self._win_click_control(win_title, ctrl_title, ctrl_type, double_click, timeout_wc)
+            self._win_click_control(win_title, class_name, process_name, ctrl_title, ctrl_type, double_click, timeout_wc)
 
         elif bt == "win_input_control":
-            win_title  = resolve_value(p.get("window_title", ""), self.variables).strip()
-            ctrl_title = resolve_value(p.get("control_title", ""), self.variables).strip()
-            text_val   = resolve_value(p.get("text", ""), self.variables)
-            clear_first = p.get("clear_first", True)
-            timeout_wi  = float(resolve_number(p.get("timeout", 5), self.variables))
-            self._win_input_control(win_title, ctrl_title, text_val, clear_first, timeout_wi)
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            ctrl_title   = resolve_value(p.get("control_title", ""), self.variables).strip()
+            text_val     = resolve_value(p.get("text", ""), self.variables)
+            clear_first  = p.get("clear_first", True)
+            timeout_wi   = float(resolve_number(p.get("timeout", 5), self.variables))
+            self._win_input_control(win_title, class_name, process_name, ctrl_title, text_val, clear_first, timeout_wi)
 
         elif bt == "win_get_control_text":
-            win_title  = resolve_value(p.get("window_title", ""), self.variables).strip()
-            ctrl_title = resolve_value(p.get("control_title", ""), self.variables).strip()
-            ctrl_type  = p.get("control_type", "any")
-            save_to    = p.get("save_to", "ctrl_text").strip()
-            timeout_wg = float(resolve_number(p.get("timeout", 5), self.variables))
-            self._win_get_control_text(win_title, ctrl_title, ctrl_type, save_to, timeout_wg)
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            ctrl_title   = resolve_value(p.get("control_title", ""), self.variables).strip()
+            ctrl_type    = p.get("control_type", "any")
+            save_to      = p.get("save_to", "ctrl_text").strip()
+            timeout_wg   = float(resolve_number(p.get("timeout", 5), self.variables))
+            self._win_get_control_text(win_title, class_name, process_name, ctrl_title, ctrl_type, save_to, timeout_wg)
 
         elif bt == "win_wait_window":
             title      = resolve_value(p.get("title", ""), self.variables).strip()
@@ -985,7 +990,42 @@ class TaskRunner(threading.Thread):
             timeout_wc = float(resolve_number(p.get("timeout", 3), self.variables))
             self._win_close_window_ctrl(title, class_name, force, timeout_wc)
 
+        elif bt == "win_wait_control":
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            ctrl_title   = resolve_value(p.get("control_title", ""), self.variables).strip()
+            ctrl_type    = p.get("control_type", "Button")
+            timeout_wt   = float(resolve_number(p.get("timeout", 30), self.variables))
+            on_timeout   = p.get("on_timeout", "continue")
+            found = self._win_wait_control(win_title, class_name, process_name, ctrl_title, ctrl_type, timeout_wt)
+            if not found and on_timeout == "stop_task":
+                raise StopTaskException()
 
+        elif bt == "win_find_control":
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            ctrl_title   = resolve_value(p.get("control_title", ""), self.variables).strip()
+            ctrl_type    = p.get("control_type", "Button")
+            timeout_wf2  = float(resolve_number(p.get("timeout", 5), self.variables))
+            save_to_fc   = p.get("save_to", "ctrl_info").strip()
+            on_not_found = p.get("on_not_found", "continue")
+            found = self._win_find_control(win_title, class_name, process_name, ctrl_title, ctrl_type, timeout_wf2, save_to_fc)
+            if not found and on_not_found == "stop_task":
+                raise StopTaskException()
+
+        elif bt == "win_click_offset":
+            win_title    = resolve_value(p.get("window_title", ""), self.variables).strip()
+            class_name   = resolve_value(p.get("class_name", ""), self.variables).strip()
+            process_name = resolve_value(p.get("process_name", ""), self.variables).strip()
+            offset_x     = int(resolve_number(p.get("offset_x", 0), self.variables))
+            offset_y     = int(resolve_number(p.get("offset_y", 0), self.variables))
+            button       = p.get("button", "left")
+            clicks       = int(resolve_number(p.get("clicks", 1), self.variables))
+            move_first   = p.get("move_first", True)
+            timeout_wo   = float(resolve_number(p.get("timeout", 5), self.variables))
+            self._win_click_offset(win_title, class_name, process_name, offset_x, offset_y, button, clicks, move_first, timeout_wo)
 
         else:
             # ── 尝试插件功能块 ──
@@ -1141,6 +1181,19 @@ class TaskRunner(threading.Thread):
 
     # ── 屏幕识别（基于 pyautogui + opencv）──
 
+    @staticmethod
+    def _load_cv2_image(img_path: str):
+        """用 numpy.fromfile 读取图片，绕过 OpenCV 不支持非 ASCII 路径的限制。
+        返回 BGR numpy 数组，失败则抛出 FileNotFoundError / cv2 异常。
+        """
+        import cv2
+        import numpy as np
+        data = np.fromfile(img_path, dtype=np.uint8)
+        img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError(f"无法解码图片文件: {img_path}")
+        return img
+
     def _parse_region(self, region_str: str):
         """解析区域字符串 'x,y,w,h' 为元组，失败返回 None（全屏）"""
         if not region_str:
@@ -1162,7 +1215,8 @@ class TaskRunner(threading.Thread):
             import pyautogui
             region = self._parse_region(region_str)
             self._log("INFO", f"    [screen_find_image] 搜索图片: {img_path}（精度={confidence}）")
-            loc = pyautogui.locateOnScreen(img_path, confidence=confidence, region=region)
+            needle = self._load_cv2_image(img_path)
+            loc = pyautogui.locateOnScreen(needle, confidence=confidence, region=region)
             if loc is None:
                 self._log("WARN", "    [screen_find_image] 未找到目标图片")
                 if save_x:
@@ -1195,7 +1249,8 @@ class TaskRunner(threading.Thread):
             import pyautogui
             region = self._parse_region(region_str)
             self._log("INFO", f"    [screen_click_image] 查找并点击: {img_path}（精度={confidence}）")
-            loc = pyautogui.locateOnScreen(img_path, confidence=confidence, region=region)
+            needle = self._load_cv2_image(img_path)
+            loc = pyautogui.locateOnScreen(needle, confidence=confidence, region=region)
             if loc is None:
                 self._log("WARN", "    [screen_click_image] 未找到目标图片")
                 if on_not_found == "stop_task":
@@ -1224,10 +1279,11 @@ class TaskRunner(threading.Thread):
             import pyautogui
             region = self._parse_region(region_str)
             self._log("INFO", f"    [screen_wait_image] 等待图片出现: {img_path}（超时={timeout}s）")
+            needle = self._load_cv2_image(img_path)
             deadline = time.time() + timeout if timeout > 0 else None
             while True:
                 self._check_stop()
-                loc = pyautogui.locateOnScreen(img_path, confidence=confidence, region=region)
+                loc = pyautogui.locateOnScreen(needle, confidence=confidence, region=region)
                 if loc is not None:
                     cx, cy = pyautogui.center(loc)
                     if save_x:
@@ -1350,18 +1406,21 @@ class TaskRunner(threading.Thread):
         except Exception as e:
             self._log("ERROR", f"    [win_find_window] 失败: {e}")
 
-    def _win_click_control(self, win_title: str, ctrl_title: str, ctrl_type: str,
+    def _win_click_control(self, win_title: str, class_name: str, process_name: str,
+                           ctrl_title: str, ctrl_type: str,
                            double_click: bool, timeout: float):
-        if not win_title:
-            self._log("WARN", "    [win_click_control] 未填写窗口标题，跳过")
+        if not win_title and not class_name and not process_name:
+            self._log("WARN", "    [win_click_control] 未填写任何窗口识别条件，跳过")
             return
         try:
             from pywinauto import Application
-            self._log("INFO", f"    [win_click_control] 窗口={win_title!r} 控件={ctrl_title!r} 类型={ctrl_type}")
-            app = Application(backend="uia").connect(title_re=_make_title_re(win_title),
-                                                     timeout=timeout)
+            self._log("INFO", f"    [win_click_control] 窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 控件={ctrl_title!r}")
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                self._log("WARN", f"    [win_click_control] 超时未找到目标窗口")
+                return
+            app = Application(backend="uia").connect(handle=hwnd)
             dlg = app.top_window()
-            # 查找控件
             if ctrl_type == "any" or not ctrl_type:
                 ctrl_kw = {}
             else:
@@ -1380,16 +1439,20 @@ class TaskRunner(threading.Thread):
         except Exception as e:
             self._log("ERROR", f"    [win_click_control] 失败: {e}")
 
-    def _win_input_control(self, win_title: str, ctrl_title: str, text: str,
+    def _win_input_control(self, win_title: str, class_name: str, process_name: str,
+                           ctrl_title: str, text: str,
                            clear_first: bool, timeout: float):
-        if not win_title:
-            self._log("WARN", "    [win_input_control] 未填写窗口标题，跳过")
+        if not win_title and not class_name and not process_name:
+            self._log("WARN", "    [win_input_control] 未填写任何窗口识别条件，跳过")
             return
         try:
             from pywinauto import Application
-            self._log("INFO", f"    [win_input_control] 窗口={win_title!r} 输入={text[:30]!r}…")
-            app = Application(backend="uia").connect(title_re=_make_title_re(win_title),
-                                                     timeout=timeout)
+            self._log("INFO", f"    [win_input_control] 窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 输入={text[:30]!r}…")
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                self._log("WARN", f"    [win_input_control] 超时未找到目标窗口")
+                return
+            app = Application(backend="uia").connect(handle=hwnd)
             dlg = app.top_window()
             if ctrl_title:
                 edit = dlg.child_window(title=ctrl_title, control_type="Edit")
@@ -1404,16 +1467,20 @@ class TaskRunner(threading.Thread):
         except Exception as e:
             self._log("ERROR", f"    [win_input_control] 失败: {e}")
 
-    def _win_get_control_text(self, win_title: str, ctrl_title: str, ctrl_type: str,
+    def _win_get_control_text(self, win_title: str, class_name: str, process_name: str,
+                              ctrl_title: str, ctrl_type: str,
                               save_to: str, timeout: float):
-        if not win_title:
-            self._log("WARN", "    [win_get_control_text] 未填写窗口标题，跳过")
+        if not win_title and not class_name and not process_name:
+            self._log("WARN", "    [win_get_control_text] 未填写任何窗口识别条件，跳过")
             return
         try:
             from pywinauto import Application
-            self._log("INFO", f"    [win_get_control_text] 窗口={win_title!r} 控件={ctrl_title!r}")
-            app = Application(backend="uia").connect(title_re=_make_title_re(win_title),
-                                                     timeout=timeout)
+            self._log("INFO", f"    [win_get_control_text] 窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 控件={ctrl_title!r}")
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                self._log("WARN", f"    [win_get_control_text] 超时未找到目标窗口")
+                return
+            app = Application(backend="uia").connect(handle=hwnd)
             dlg = app.top_window()
             if ctrl_title or (ctrl_type and ctrl_type != "any"):
                 ctrl_kw = {}
@@ -1482,6 +1549,178 @@ class TaskRunner(threading.Thread):
             self._log("ERROR", "    [win_close_window] 依赖未安装，请运行：pip install pywinauto")
         except Exception as e:
             self._log("ERROR", f"    [win_close_window] 失败: {e}")
+
+    def _find_hwnd_by_conditions(self, win_title: str, class_name: str,
+                                  process_name: str, timeout: float) -> int:
+        """
+        多条件组合查找窗口句柄（HWND）。
+        条件之间为 AND 关系：满足所有填写的条件才算匹配。
+        返回找到的第一个窗口 HWND，超时返回 0。
+        """
+        import ctypes
+        import ctypes.wintypes
+        import re as _re
+
+        user32 = ctypes.windll.user32
+        title_re = _make_title_re(win_title) if win_title else None
+        pattern = _re.compile(title_re, _re.IGNORECASE) if title_re else None
+
+        found_hwnd = [0]
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _enum_cb(h, _lp):
+            if not user32.IsWindowVisible(h):
+                return True
+            # 检查窗口标题
+            if pattern:
+                buf = ctypes.create_unicode_buffer(512)
+                user32.GetWindowTextW(h, buf, 512)
+                if not pattern.search(buf.value):
+                    return True
+            # 检查窗口类名
+            if class_name:
+                cn_buf = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(h, cn_buf, 256)
+                if cn_buf.value.lower() != class_name.lower():
+                    return True
+            # 检查进程名
+            if process_name:
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+                try:
+                    import psutil
+                    proc = psutil.Process(pid.value)
+                    if proc.name().lower() != process_name.lower():
+                        return True
+                except Exception:
+                    return True
+            found_hwnd[0] = h
+            return False  # 停止枚举
+
+        deadline = time.time() + timeout if timeout > 0 else None
+        while not found_hwnd[0]:
+            self._check_stop()
+            user32.EnumWindows(_enum_cb, 0)
+            if found_hwnd[0]:
+                break
+            if deadline and time.time() >= deadline:
+                conditions = []
+                if win_title: conditions.append(f"标题={win_title!r}")
+                if class_name: conditions.append(f"类名={class_name!r}")
+                if process_name: conditions.append(f"进程={process_name!r}")
+                self._log("WARN", f"    [find_hwnd] 超时未找到窗口: {' AND '.join(conditions)}")
+                return 0
+            time.sleep(0.2)
+        return found_hwnd[0]
+
+    def _win_wait_control(self, win_title: str, class_name: str, process_name: str,
+                          ctrl_title: str, ctrl_type: str, timeout: float) -> bool:
+        """等待目标窗口中指定控件出现，返回是否找到。"""
+        try:
+            from pywinauto import Application
+            self._log("INFO", f"    [win_wait_control] 等待窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 控件={ctrl_title!r} 类型={ctrl_type}（超时={timeout}s）")
+            deadline = time.time() + timeout if timeout > 0 else None
+            while True:
+                self._check_stop()
+                try:
+                    hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, min(timeout, 1.0))
+                    if hwnd:
+                        app = Application(backend="uia").connect(handle=hwnd)
+                        dlg = app.top_window()
+                        ctrl_kw = {}
+                        if ctrl_type and ctrl_type != "any":
+                            ctrl_kw["control_type"] = ctrl_type
+                        if ctrl_title:
+                            ctrl_kw["title"] = ctrl_title
+                        ctrl = dlg.child_window(**ctrl_kw)
+                        if ctrl.exists(timeout=0):
+                            self._log("INFO", "    [win_wait_control] 控件已出现")
+                            return True
+                except Exception:
+                    pass
+                if deadline and time.time() >= deadline:
+                    self._log("WARN", "    [win_wait_control] 等待超时")
+                    return False
+                time.sleep(0.3)
+        except ImportError:
+            self._log("ERROR", "    [win_wait_control] 依赖未安装，请运行：pip install pywinauto")
+            return False
+        except Exception as e:
+            self._log("ERROR", f"    [win_wait_control] 失败: {e}")
+            return False
+
+    def _win_find_control(self, win_title: str, class_name: str, process_name: str,
+                          ctrl_title: str, ctrl_type: str,
+                          timeout: float, save_to: str) -> bool:
+        """查找目标窗口中的控件，将控件文本或句柄存入变量，返回是否找到。"""
+        try:
+            from pywinauto import Application
+            self._log("INFO", f"    [win_find_control] 查找窗口={win_title!r} 类名={class_name!r} 进程={process_name!r} 控件={ctrl_title!r} 类型={ctrl_type}")
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                self._log("WARN", "    [win_find_control] 超时未找到目标窗口")
+                if save_to:
+                    self.variables[save_to] = ""
+                return False
+            app = Application(backend="uia").connect(handle=hwnd)
+            dlg = app.top_window()
+            ctrl_kw = {}
+            if ctrl_type and ctrl_type != "any":
+                ctrl_kw["control_type"] = ctrl_type
+            if ctrl_title:
+                ctrl_kw["title"] = ctrl_title
+            ctrl = dlg.child_window(**ctrl_kw)
+            if ctrl.exists(timeout=0):
+                ctrl_text = ctrl.window_text()
+                if save_to:
+                    self.variables[save_to] = ctrl_text
+                self._log("INFO", f"    [win_find_control] 找到控件，文本={ctrl_text!r} → {save_to}")
+                return True
+            else:
+                self._log("WARN", f"    [win_find_control] 在窗口中未找到控件: {ctrl_title!r}")
+                if save_to:
+                    self.variables[save_to] = ""
+                return False
+        except ImportError:
+            self._log("ERROR", "    [win_find_control] 依赖未安装，请运行：pip install pywinauto")
+            return False
+        except Exception as e:
+            self._log("ERROR", f"    [win_find_control] 失败: {e}")
+            return False
+
+    def _win_click_offset(self, win_title: str, class_name: str, process_name: str,
+                          offset_x: int, offset_y: int, button: str, clicks: int,
+                          move_first: bool, timeout: float):
+        """
+        窗口坐标偏移点击：找到目标窗口，计算窗口左上角 + (offset_x, offset_y) 的屏幕坐标，然后点击。
+        支持多条件组合识别：窗口标题(通配符) + 窗口类名(精确) + 进程名(精确)，条件之间为 AND 关系。
+        即使窗口移动了位置，也能根据实时坐标精确点击。
+        """
+        if not win_title and not class_name and not process_name:
+            self._log("WARN", "    [win_click_offset] 未填写任何窗口识别条件，跳过")
+            return
+        import ctypes
+        import ctypes.wintypes
+        try:
+            user32 = ctypes.windll.user32
+            hwnd = self._find_hwnd_by_conditions(win_title, class_name, process_name, timeout)
+            if not hwnd:
+                return
+
+            # 获取窗口左上角坐标（物理像素）
+            rect = ctypes.wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            target_x = rect.left + offset_x
+            target_y = rect.top  + offset_y
+
+            self._log("INFO", f"    [win_click_offset] 窗口左上角=({rect.left},{rect.top}) "
+                              f"偏移=({offset_x},{offset_y}) 点击=({target_x},{target_y})")
+
+            # 点击（复用现有 _mouse_click_pos）
+            self._mouse_click_pos(target_x, target_y, button, clicks, move_first)
+            self._log("INFO", "    [win_click_offset] 点击完成")
+        except Exception as e:
+            self._log("ERROR", f"    [win_click_offset] 失败: {e}")
 
 
 

@@ -83,7 +83,33 @@ def _run_task_headless(task_id: str, project_path: str | None = None) -> int:
         elif os.path.exists(_old_default):
             project_path = _old_default
 
-    if not project_path or not os.path.isfile(project_path):
+    if not project_path:
+        # 没有项目文件，创建一个空的默认项目
+        import tempfile
+        from src.engine.models import Project
+        from src.engine.models import AppConfig
+        
+        # 创建临时项目文件
+        temp_dir = tempfile.gettempdir()
+        project_path = os.path.join(temp_dir, f"autoflow_temp_{task_id}.afp")
+        
+        try:
+            # 创建空项目
+            config = AppConfig()
+            project = Project(
+                id="default",
+                name="临时项目",
+                config=config,
+                tasks=[],
+                global_variables={}
+            )
+            project.save(project_path)
+            print(f"[AutoFlow] 警告：默认项目文件不存在，已创建临时项目: {project_path}")
+        except Exception as e:
+            print(f"[AutoFlow] 错误：无法创建临时项目: {e}", file=sys.stderr)
+            print(f"[AutoFlow] 请先运行 AutoFlow 并保存至少一个任务")
+            return 2
+    elif not os.path.isfile(project_path):
         print(f"[AutoFlow] 错误：项目文件不存在: {project_path}", file=sys.stderr)
         return 2
 

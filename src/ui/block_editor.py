@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QSplitter, QListWidget, QListWidgetItem
 )
+import time
 import json
 from typing import List, Optional, Callable
 
@@ -46,6 +47,27 @@ _COLLAPSIBLE   = {"loop", "group", "if_block"}
 
 # if 内部分支标记（不增加深度、不减少深度，但影响缩进基于if层级）
 _IF_BRANCH_MARKERS = {"elif_block", "else_block"}
+
+
+# ── 只响应焦点滚轮的 SpinBox ─────────────────────────────────────
+class FocusDoubleSpinBox(QDoubleSpinBox):
+    """只有在输入框被点击/获得焦点后才响应鼠标滚轮，避免滚动页面时误触数值"""
+    
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()  # 把事件向上传递，让外层滚动区处理
+
+
+class FocusSpinBox(QSpinBox):
+    """只有在输入框被点击/获得焦点后才响应鼠标滚轮"""
+    
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
 
 def _ctype_to_label(block_type: str, ctype: str) -> str:
@@ -362,6 +384,7 @@ class WindowPickerEdit(QWidget):
     """
     窗口选择控件：文本框 + [选择] 按钮
     点击选择按钮后最小化主窗口，3秒后识别鼠标所在位置的窗口标题
+    回调 on_picked(title, class_name, process_name) 用于父控件自动填写附加字段
     """
 
     def __init__(self, default: str = "", parent=None):
@@ -382,6 +405,8 @@ class WindowPickerEdit(QWidget):
         layout.addWidget(self._btn)
 
         self._countdown = 3
+        # 可选回调：on_picked(title: str, class_name: str, process_name: str)
+        self.on_picked = None
 
     def text(self) -> str:
         return self._edit.text()
@@ -414,14 +439,32 @@ class WindowPickerEdit(QWidget):
             self._do_pick()
 
     def _do_pick(self):
+        title = ""
+        class_name = ""
+        process_name = ""
         try:
             import ctypes
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            import ctypes.wintypes
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            # 标题
             buf = ctypes.create_unicode_buffer(256)
-            ctypes.windll.user32.GetWindowTextW(hwnd, buf, 256)
+            user32.GetWindowTextW(hwnd, buf, 256)
             title = buf.value.strip()
             if title:
                 self._edit.setText(title)
+            # 类名
+            cls_buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, cls_buf, 256)
+            class_name = cls_buf.value.strip()
+            # 进程名
+            pid = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            try:
+                import psutil
+                process_name = psutil.Process(pid.value).name()
+            except Exception:
+                pass
         except Exception:
             pass
         self._btn.setEnabled(True)
@@ -434,6 +477,9 @@ class WindowPickerEdit(QWidget):
             top.showNormal()
         if hasattr(top, 'activateWindow'):
             top.activateWindow()
+        # 触发回调（回填 class_name / process_name 到同一表单）
+        if callable(self.on_picked):
+            self.on_picked(title, class_name, process_name)
 
 
 # ─────────────────── 进程/窗口选择器控件 ───────────────────
@@ -482,6 +528,11 @@ class ProcessWindowPickerEdit(QWidget):
         self._edit.setText(t)
 
     def _start_pick(self):
+        """mode=window/both: 3秒倒计时取前台窗口标题；mode=process: 直接弹出进程列表"""
+        if self._mode == "process":
+            # 进程名模式直接弹列表，更精准
+            self._show_list()
+            return
         top = self
         while top.parent():
             top = top.parent()
@@ -511,13 +562,6 @@ class ProcessWindowPickerEdit(QWidget):
             title = buf.value.strip()
             if title and self._mode in ("window", "both"):
                 self._edit.setText(title)
-            elif self._mode == "process":
-                # 获取 PID 再转进程名
-                pid = ctypes.c_ulong()
-                ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                import psutil
-                p = psutil.Process(pid.value)
-                self._edit.setText(p.name())
         except Exception:
             pass
         self._btn_pick.setEnabled(True)
@@ -677,6 +721,136 @@ class ProcessWindowListDialog(QDialog):
         self.accept()
 
 
+# ─────────────────── 窗口类名选择对话框 ───────────────────
+
+class WindowClassListDialog(QDialog):
+    """
+    弹出所有可见窗口列表，显示 窗口标题 / 类名 / 进程名，
+    用户点选后将 class_name 返回。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.selected_class = ""
+        self.selected_title = ""
+        self.selected_process = ""
+        self.setWindowTitle("选择窗口类名")
+        self.setMinimumSize(680, 420)
+        self.setModal(True)
+        self._all_data = []
+        self._build_ui()
+        self._refresh()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        hint = QLabel("选择目标窗口后点击确定，类名将被自动填入。标题和进程名也可一并回填。")
+        hint.setStyleSheet("color: #aaa; font-size: 12px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        search_row = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("搜索标题 / 类名 / 进程名...")
+        self._search.textChanged.connect(self._filter)
+        search_row.addWidget(self._search)
+        refresh_btn = QPushButton("刷新")
+        refresh_btn.setObjectName("btn_flat")
+        refresh_btn.setFixedWidth(52)
+        refresh_btn.clicked.connect(self._refresh)
+        search_row.addWidget(refresh_btn)
+        layout.addLayout(search_row)
+
+        self._table = QTableWidget()
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.setColumnCount(3)
+        self._table.setHorizontalHeaderLabels(["窗口标题", "窗口类名", "进程名"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.doubleClicked.connect(self._accept_selection)
+        layout.addWidget(self._table)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._accept_selection)
+        btns.rejected.connect(self.reject)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("确定")
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        layout.addWidget(btns)
+
+    def _refresh(self):
+        import ctypes, ctypes.wintypes
+        user32 = ctypes.windll.user32
+        EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.HWND, ctypes.LPARAM)
+        wins = []
+
+        def _cb(hwnd, _):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            # 标题
+            title_buf = ctypes.create_unicode_buffer(256)
+            user32.GetWindowTextW(hwnd, title_buf, 256)
+            title = title_buf.value.strip()
+            if not title:
+                return True
+            # 类名
+            cls_buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, cls_buf, 256)
+            class_name = cls_buf.value.strip()
+            # 进程名
+            pid = ctypes.wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            proc_name = ""
+            try:
+                import psutil as _ps
+                proc_name = _ps.Process(pid.value).name()
+            except Exception:
+                pass
+            wins.append({
+                "title": title, "class_name": class_name, "proc": proc_name
+            })
+            return True
+
+        user32.EnumWindows(EnumWindowsCB(_cb), 0)
+        self._all_data = wins
+        self._build_table(wins)
+
+    def _build_table(self, data):
+        self._table.setRowCount(len(data))
+        for row, item in enumerate(data):
+            self._table.setItem(row, 0, QTableWidgetItem(item["title"]))
+            self._table.setItem(row, 1, QTableWidgetItem(item["class_name"]))
+            self._table.setItem(row, 2, QTableWidgetItem(item["proc"]))
+
+    def _filter(self, text: str):
+        text = text.lower()
+        filtered = [d for d in self._all_data
+                    if text in d["title"].lower()
+                    or text in d["class_name"].lower()
+                    or text in d["proc"].lower()]
+        self._build_table(filtered)
+
+    def _accept_selection(self):
+        row = self._table.currentRow()
+        if row < 0:
+            return
+        item_cls = self._table.item(row, 1)
+        item_title = self._table.item(row, 0)
+        item_proc = self._table.item(row, 2)
+        if item_cls:
+            self.selected_class = item_cls.text()
+        if item_title:
+            self.selected_title = item_title.text()
+        if item_proc:
+            self.selected_process = item_proc.text()
+        self.accept()
+
+
 # ─────────────────── 坐标选点控件 ───────────────────
 
 class CoordPickerEdit(QWidget):
@@ -725,7 +899,7 @@ class CoordPickerEdit(QWidget):
 
         self._btn = QPushButton("📍 选点")
         self._btn.setObjectName("btn_flat")
-        self._btn.setFixedWidth(72)
+        self._btn.setMinimumWidth(72)
         self._btn.clicked.connect(self._start_pick)
         layout.addWidget(self._btn)
         layout.addStretch()
@@ -2020,8 +2194,125 @@ class BlockEditDialog(QDialog):
             w = HotkeyEditWidget(str(default))
             return w
         elif ptype == "window_picker":
+            # ── win_click_offset + win_click_control/win_input_control 等控件块 ──
+            # 所有含 window_title 的窗口控件块都注册 on_picked 回调，实现一键填所有字段
+            _ctrl_win_block_types = {
+                "win_click_offset", "win_click_control", "win_input_control",
+                "win_get_control_text", "win_wait_control", "win_find_control",
+            }
+            if self.block.block_type in _ctrl_win_block_types and key == "window_title":
+                row = QWidget()
+                hl = QHBoxLayout(row)
+                hl.setContentsMargins(0, 0, 0, 0)
+                hl.setSpacing(4)
+                w = WindowPickerEdit(str(default))
+                w.setObjectName(f"_win_picker_{key}")
+
+                # 回调：选窗口后自动回填 class_name / process_name（以及偏移点按钮的特殊逻辑）
+                def _on_win_picked_common(title, class_name, process_name, _w=w):
+                    cn_widget = self._widgets.get("class_name")
+                    pn_widget = self._widgets.get("process_name")
+                    if cn_widget is not None and class_name:
+                        if hasattr(cn_widget, "_line_edit"):
+                            cn_widget._line_edit.setText(class_name)
+                        elif hasattr(cn_widget, "setText"):
+                            cn_widget.setText(class_name)
+                        elif hasattr(cn_widget, "_edit"):
+                            cn_widget._edit.setText(class_name)
+                        else:
+                            from PyQt6.QtWidgets import QLineEdit as _QLE2
+                            _le = cn_widget.findChild(_QLE2)
+                            if _le:
+                                _le.setText(class_name)
+                    if pn_widget is not None and process_name:
+                        if hasattr(pn_widget, "_line_edit"):
+                            pn_widget._line_edit.setText(process_name)
+                        elif hasattr(pn_widget, "setText"):
+                            pn_widget.setText(process_name)
+                        elif hasattr(pn_widget, "_edit"):
+                            pn_widget._edit.setText(process_name)
+                        else:
+                            from PyQt6.QtWidgets import QLineEdit as _QLE2
+                            _le = pn_widget.findChild(_QLE2)
+                            if _le:
+                                _le.setText(process_name)
+                w.on_picked = _on_win_picked_common
+
+                if self.block.block_type == "win_click_offset":
+                    # win_click_offset 还额外需要"选偏移点"按钮
+                    btn = QPushButton("选偏移点")
+                    btn.setObjectName("btn_flat")
+                    btn.setMinimumWidth(72)
+                    btn.setToolTip("在目标窗口上点击一个位置，自动计算相对窗口左上角的偏移坐标")
+                    btn.clicked.connect(lambda checked=False, wp=w: self._pick_window_offset(wp))
+                    hl.addWidget(w)
+                    hl.addWidget(btn)
+                else:
+                    hl.addWidget(w)
+                return row
             w = WindowPickerEdit(str(default))
             return w
+        elif ptype == "window_class_picker":
+            # 窗口类名参数：文本框 + [选择] 按钮（弹出窗口列表让用户选择，同时回填进程名）
+            row = QWidget()
+            hl = QHBoxLayout(row)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(4)
+            edit_cls = QLineEdit(str(default))
+            edit_cls.setPlaceholderText(ph or "如 WeChatMainWndForPC, Notepad")
+            edit_cls.setObjectName(f"_edit_{key}")
+            # 暴露 _line_edit 属性，供外部回填使用
+            row._line_edit = edit_cls
+
+            def _do_pick_class(target_edit=edit_cls):
+                """弹出窗口列表，让用户选择要识别的窗口，自动填入类名，并回填进程名"""
+                dlg = WindowClassListDialog(self)
+                if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_class:
+                    target_edit.setText(dlg.selected_class)
+                    # 同时尝试回填进程名字段（如果同一表单里有 process_name 字段）
+                    if dlg.selected_process:
+                        pn_widget = self._widgets.get("process_name")
+                        if pn_widget is not None:
+                            if hasattr(pn_widget, "_line_edit"):
+                                pn_widget._line_edit.setText(dlg.selected_process)
+                            elif hasattr(pn_widget, "setText"):
+                                pn_widget.setText(dlg.selected_process)
+                            elif hasattr(pn_widget, "_edit"):
+                                pn_widget._edit.setText(dlg.selected_process)
+                    # 也回填窗口标题字段（如果同一表单里有 window_title 字段且当前为空）
+                    if dlg.selected_title:
+                        wt_widget = self._widgets.get("window_title")
+                        if wt_widget is not None:
+                            cur_title = ""
+                            if hasattr(wt_widget, "text"):
+                                cur_title = wt_widget.text().strip()
+                            elif hasattr(wt_widget, "_edit"):
+                                cur_title = wt_widget._edit.text().strip()
+                            else:
+                                from PyQt6.QtWidgets import QLineEdit as _QLE3
+                                _le = wt_widget.findChild(_QLE3)
+                                if _le:
+                                    cur_title = _le.text().strip()
+                            # 仅在窗口标题为空时自动填入
+                            if not cur_title:
+                                if hasattr(wt_widget, "setText"):
+                                    wt_widget.setText(dlg.selected_title)
+                                elif hasattr(wt_widget, "_edit"):
+                                    wt_widget._edit.setText(dlg.selected_title)
+                                else:
+                                    from PyQt6.QtWidgets import QLineEdit as _QLE3
+                                    _le = wt_widget.findChild(_QLE3)
+                                    if _le:
+                                        _le.setText(dlg.selected_title)
+
+            btn_cls = QPushButton("选择")
+            btn_cls.setObjectName("btn_flat")
+            btn_cls.setFixedWidth(52)
+            btn_cls.setToolTip("弹出窗口列表，点选目标窗口自动识别类名（同时回填进程名）")
+            btn_cls.clicked.connect(_do_pick_class)
+            hl.addWidget(edit_cls)
+            hl.addWidget(btn_cls)
+            return row
         elif ptype == "process_picker":
             w = ProcessWindowPickerEdit(str(default), mode="process")
             return w
@@ -2049,7 +2340,7 @@ class BlockEditDialog(QDialog):
             w.setPlaceholderText(ph or "数字或变量名 {{var}}")
             return w
         elif ptype == "number":
-            w = QDoubleSpinBox()
+            w = FocusDoubleSpinBox()
             w.setRange(-1e9, 1e9)
             w.setValue(float(default) if default else 0)
             return w
@@ -2080,12 +2371,29 @@ class BlockEditDialog(QDialog):
             hl  = QHBoxLayout(row)
             hl.setContentsMargins(0,0,0,0); hl.setSpacing(4)
             edit = QLineEdit(str(default)); edit.setObjectName(f"_edit_{key}")
-            btn  = QPushButton("浏览"); btn.setObjectName("btn_flat"); btn.setFixedWidth(52)
+            
+            # 为屏幕识别功能块的图片路径添加截图功能
+            is_screen_image_param = (self.block.block_type in ["screen_find_image", "screen_click_image", "screen_wait_image"] 
+                                     and key == "image_path")
+            
+            if is_screen_image_param:
+                # 添加截图按钮
+                btn_screenshot = QPushButton("截图")
+                btn_screenshot.setObjectName("btn_flat")
+                btn_screenshot.setMinimumWidth(52)
+                btn_screenshot.clicked.connect(lambda: self._capture_screenshot(edit))
+                hl.addWidget(btn_screenshot)
+            
+            btn = QPushButton("浏览")
+            btn.setObjectName("btn_flat")
+            btn.setMinimumWidth(52)
             if ptype == "folder_picker":
                 btn.clicked.connect(lambda: self._pick_folder(edit))
             else:
                 btn.clicked.connect(lambda: self._pick_file(edit))
-            hl.addWidget(edit); hl.addWidget(btn)
+            
+            hl.addWidget(edit)
+            hl.addWidget(btn)
             return row
         elif ptype == "app_launcher_picker":
             placeholder = spec.get("placeholder", "")
@@ -2135,15 +2443,1021 @@ class BlockEditDialog(QDialog):
             w = ConditionTargetWidget(str(default))
             return w
         elif ptype == "text":
-            w = QLineEdit(str(default))
-            if ph: w.setPlaceholderText(ph)
-            return w
+            # 检查是否为窗口控件功能块的窗口标题或控件标题参数
+            is_window_control = self.block.block_type in [
+                "win_click_control", "win_input_control", "win_get_control_text",
+                "win_find_window", "win_wait_window", "win_close_window",
+                "win_wait_control", "win_find_control",
+            ]
+            is_window_title_param = (key in ["window_title", "title"]) and is_window_control
+            is_control_title_param = (key in ["control_title"]) and is_window_control
+
+            # 检查是否为屏幕识别功能块的区域参数
+            is_screen_region_param = (self.block.block_type in ["screen_find_image", "screen_click_image", "screen_wait_image", "screen_screenshot_region"]
+                                      and key == "region")
+
+            if is_window_title_param or is_control_title_param:
+                # 为窗口/控件标题参数添加选点按钮
+                row = QWidget()
+                hl = QHBoxLayout(row)
+                hl.setContentsMargins(0,0,0,0)
+                hl.setSpacing(4)
+                
+                edit = QLineEdit(str(default))
+                edit.setObjectName(f"_edit_{key}")
+                if ph: edit.setPlaceholderText(ph)
+                
+                # 根据参数类型设置不同的按钮文本
+                btn_text = "选窗口" if is_window_title_param else "选控件"
+                btn = QPushButton(btn_text)
+                btn.setObjectName("btn_flat")
+                btn.setMinimumWidth(60)
+                btn.clicked.connect(lambda checked=False, e=edit, is_win=is_window_title_param, is_ctrl=is_control_title_param: 
+                                  self._pick_window_control(e, is_win, is_ctrl))
+                
+                hl.addWidget(edit)
+                hl.addWidget(btn)
+                return row
+            elif is_screen_region_param:
+                # 为屏幕识别区域参数添加框选按钮
+                row = QWidget()
+                hl = QHBoxLayout(row)
+                hl.setContentsMargins(0,0,0,0)
+                hl.setSpacing(4)
+
+                edit = QLineEdit(str(default))
+                edit.setObjectName(f"_edit_{key}")
+                if ph: edit.setPlaceholderText(ph)
+
+                btn = QPushButton("框选")
+                btn.setObjectName("btn_flat")
+                btn.setMinimumWidth(52)
+                btn.clicked.connect(lambda checked=False, e=edit: self._select_region(e))
+
+                hl.addWidget(edit)
+                hl.addWidget(btn)
+                return row
+            else:
+                w = QLineEdit(str(default))
+                if ph: w.setPlaceholderText(ph)
+                return w
         else:
             w = QLineEdit(str(default))
             if ph: w.setPlaceholderText(ph)
             return w
+
+    def _pick_file(self, edit: QLineEdit):
+        """打开文件对话框选择文件"""
         path, _ = QFileDialog.getOpenFileName(self, "选择文件")
         if path: edit.setText(path)
+
+    def _capture_screenshot(self, edit: QLineEdit):
+        """框选截图并保存到指定路径。
+        使用 QScreen.grabWindow(0) 截全屏（正确处理 DPI 缩放），
+        松开鼠标立即弹出保存对话框。
+        """
+        import os, datetime
+        from PyQt6.QtWidgets import QDialog, QApplication
+        from PyQt6.QtCore import Qt, QRect, QPoint, QSize
+        from PyQt6.QtGui import QPainter, QPixmap, QColor, QPen, QFont, QCursor
+
+        app = QApplication.instance()
+
+        # ── 1. 先截全屏（在弹出遮罩之前，正确处理 DPI）──
+        # 枚举所有屏幕，分别截图，再拼成虚拟桌面大图
+        screen_shots = []  # (geometry_in_logical, pixmap_in_physical)
+        for scr in app.screens():
+            pm = scr.grabWindow(0)   # 物理像素截图
+            screen_shots.append((scr.geometry(), pm))
+
+        # 计算虚拟桌面逻辑坐标范围
+        total_logical = QRect()
+        for geom, _ in screen_shots:
+            total_logical = total_logical.united(geom)
+
+        # 创建以物理像素为单位的拼接画布
+        # 取主屏 DPR 作为整体 devicePixelRatio
+        main_dpr = app.primaryScreen().devicePixelRatio()
+        canvas_w = int(total_logical.width()  * main_dpr)
+        canvas_h = int(total_logical.height() * main_dpr)
+        full_pixmap = QPixmap(canvas_w, canvas_h)
+        full_pixmap.fill(QColor(0, 0, 0))
+        painter = QPainter(full_pixmap)
+        for geom, pm in screen_shots:
+            # 计算该屏在画布中的位置（物理像素）
+            px = int((geom.x() - total_logical.x()) * main_dpr)
+            py = int((geom.y() - total_logical.y()) * main_dpr)
+            painter.drawPixmap(px, py, pm)
+        painter.end()
+
+        # ── 2. 全屏遮罩对话框 ──
+        class ScreenCaptureDialog(QDialog):
+            def __init__(self_d):
+                super().__init__(None)
+                self_d.setWindowFlags(
+                    Qt.WindowType.FramelessWindowHint |
+                    Qt.WindowType.WindowStaysOnTopHint |
+                    Qt.WindowType.Tool
+                )
+                self_d.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+                self_d.setMouseTracking(True)
+                self_d.setGeometry(total_logical)
+                self_d._offset = total_logical.topLeft()
+
+                self_d._start    = QPoint()
+                self_d._end      = QPoint()
+                self_d._dragging = False
+                self_d._has_sel  = False   # 松手后置 True
+                self_d.selection_rect = None   # QRect（逻辑坐标，相对虚拟桌面原点）
+
+                # 背景：把物理像素画布缩放成逻辑像素大小铺满窗口
+                self_d._bg = full_pixmap.scaled(
+                    total_logical.width(), total_logical.height(),
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.FastTransformation
+                )
+
+            def showEvent(self_d, ev):
+                super().showEvent(ev)
+                self_d.activateWindow()
+                self_d.setFocus()
+
+            def _sel_rect(self_d):
+                """返回当前选区（窗口本地坐标）"""
+                x1 = min(self_d._start.x(), self_d._end.x())
+                y1 = min(self_d._start.y(), self_d._end.y())
+                x2 = max(self_d._start.x(), self_d._end.x())
+                y2 = max(self_d._start.y(), self_d._end.y())
+                return QRect(x1, y1, x2 - x1, y2 - y1)
+
+            def paintEvent(self_d, event):
+                p = QPainter(self_d)
+                # 绘制背景截图
+                p.drawPixmap(0, 0, self_d._bg)
+                # 半透明遮罩
+                p.fillRect(self_d.rect(), QColor(0, 0, 0, 80))
+
+                # 如果有选区（拖动中 or 已松手）
+                if (self_d._dragging or self_d._has_sel) and not self_d._start.isNull():
+                    sel = self_d._sel_rect()
+                    if sel.width() > 2 and sel.height() > 2:
+                        # 镂空：显示原始画面
+                        p.drawPixmap(sel, self_d._bg, sel)
+                        # 蓝色边框
+                        p.setPen(QPen(QColor(30, 144, 255), 2))
+                        p.drawRect(sel)
+                        # 尺寸提示
+                        info = f"{sel.width()} x {sel.height()}"
+                        font = QFont()
+                        font.setPointSize(10)
+                        font.setBold(True)
+                        p.setFont(font)
+                        p.setPen(QColor(255, 255, 255))
+                        tx = sel.left()
+                        ty = sel.top() - 6 if sel.top() > 22 else sel.bottom() + 18
+                        fm = p.fontMetrics()
+                        tw = fm.horizontalAdvance(info)
+                        p.fillRect(tx, ty - 14, tw + 8, 18, QColor(0, 0, 0, 160))
+                        p.drawText(tx + 4, ty, info)
+
+                # 底部提示
+                tip = "拖动框选  |  松开鼠标确认  |  Esc 取消"
+                font2 = QFont()
+                font2.setPointSize(10)
+                p.setFont(font2)
+                fm2 = p.fontMetrics()
+                tw2 = fm2.horizontalAdvance(tip)
+                p.fillRect(self_d.width() - tw2 - 20, self_d.height() - 34,
+                           tw2 + 16, 24, QColor(0, 0, 0, 160))
+                p.setPen(QColor(255, 255, 255))
+                p.drawText(self_d.width() - tw2 - 12, self_d.height() - 16, tip)
+
+            def mousePressEvent(self_d, ev):
+                if ev.button() == Qt.MouseButton.LeftButton:
+                    self_d._start    = ev.pos()
+                    self_d._end      = ev.pos()
+                    self_d._dragging = True
+                    self_d._has_sel  = False
+                    self_d.update()
+
+            def mouseMoveEvent(self_d, ev):
+                if self_d._dragging:
+                    self_d._end = ev.pos()
+                    self_d.update()
+
+            def mouseReleaseEvent(self_d, ev):
+                if ev.button() == Qt.MouseButton.LeftButton and self_d._dragging:
+                    self_d._end      = ev.pos()
+                    self_d._dragging = False
+                    self_d._has_sel  = True
+                    sel = self_d._sel_rect()
+                    if sel.width() > 5 and sel.height() > 5:
+                        # 转换为虚拟桌面逻辑坐标
+                        self_d.selection_rect = QRect(
+                            sel.x() + self_d._offset.x(),
+                            sel.y() + self_d._offset.y(),
+                            sel.width(), sel.height()
+                        )
+                        self_d.accept()
+                    else:
+                        # 太小，重置
+                        self_d._has_sel = False
+                        self_d.update()
+
+            def keyPressEvent(self_d, ev):
+                if ev.key() == Qt.Key.Key_Escape:
+                    self_d.reject()
+
+        dlg = ScreenCaptureDialog()
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selection_rect:
+            return
+
+        sel = dlg.selection_rect
+
+        # ── 3. 从全屏拼合图中裁剪对应区域 ──
+        # sel 是逻辑坐标（相对虚拟桌面），需换算成物理像素
+        lx = sel.x() - total_logical.x()
+        ly = sel.y() - total_logical.y()
+        crop_x = int(lx * main_dpr)
+        crop_y = int(ly * main_dpr)
+        crop_w = max(int(sel.width()  * main_dpr), 1)
+        crop_h = max(int(sel.height() * main_dpr), 1)
+        cropped = full_pixmap.copy(crop_x, crop_y, crop_w, crop_h)
+
+        # ── 4. 保存对话框 ──
+        default_name = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        pictures_dir = os.path.join(os.path.expanduser("~"), "Pictures")
+        os.makedirs(pictures_dir, exist_ok=True)
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "保存截图",
+            os.path.join(pictures_dir, default_name),
+            "PNG 图像 (*.png);;JPEG 图像 (*.jpg);;所有文件 (*.*)"
+        )
+        if not save_path:
+            return
+        if not save_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            save_path += '.png'
+
+        cropped.save(save_path)
+        edit.setText(save_path)
+
+    @staticmethod
+    @staticmethod
+    def _ocr_pixmap(pixmap) -> str:
+        """
+        识别 QPixmap 中的文字。
+        方案1：将图像保存为临时文件，通过 PowerShell 调用 Windows.Media.OCR（同步子进程，无asyncio冲突）。
+        方案2：PIL + pytesseract（备用）。
+        返回识别出的文字；失败返回空字符串。
+        """
+        import io, os, tempfile, subprocess
+        from PyQt6.QtCore import QBuffer, QByteArray
+
+        # 将 QPixmap 保存为临时 PNG
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QBuffer.OpenModeFlag.WriteOnly)
+        pixmap.save(buf, "PNG")
+        buf.close()
+        png_bytes = bytes(ba)
+
+        tmp_img  = None
+        tmp_txt  = None
+        try:
+            fd, tmp_img = tempfile.mkstemp(suffix=".png")
+            os.close(fd)
+            with open(tmp_img, "wb") as f:
+                f.write(png_bytes)
+
+            # ── 方案1：PowerShell + Windows.Media.OCR ──
+            ps_script = (
+                "Add-Type -AssemblyName System.Runtime.WindowsRuntime; "
+                "$null = [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]; "
+                "$null = [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]; "
+                "function Await($task){ $type=[System.Runtime.CompilerServices.RuntimeHelpers]; "
+                "$type.GetType(); "
+                "[System.Threading.Tasks.Task]::Run({$task}).GetAwaiter().GetResult() } "
+                "$imgPath='IMG_PATH'; "
+                "$sf=Await([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath)); "
+                "$stream=Await($sf.OpenReadAsync()); "
+                "$dec=Await([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)); "
+                "$bmp=Await($dec.GetSoftwareBitmapAsync()); "
+                "$eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages(); "
+                "if(-not $eng){$lang=[Windows.Globalization.Language]::new('zh-Hans'); "
+                "$eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)}; "
+                "if(-not $eng){Write-Output ''; exit}; "
+                "$res=Await($eng.RecognizeAsync($bmp)); "
+                "Write-Output $res.Text"
+            ).replace("IMG_PATH", tmp_img.replace("\\", "\\\\"))
+
+            try:
+                result = subprocess.run(
+                    ["powershell", "-NoProfile", "-NonInteractive",
+                     "-ExecutionPolicy", "Bypass", "-Command", ps_script],
+                    capture_output=True, text=True, timeout=20
+                )
+                text = (result.stdout or "").strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+
+            # ── 方案2：PIL + pytesseract ──
+            try:
+                from PIL import Image
+                import pytesseract
+                img = Image.open(io.BytesIO(png_bytes))
+                text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+                return text.strip()
+            except Exception:
+                pass
+
+            return ""
+        except Exception:
+            return ""
+        finally:
+            for p in [tmp_img, tmp_txt]:
+                if p and os.path.exists(p):
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
+
+    def _select_region(self, edit: QLineEdit):
+        """框选搜索区域，将 x,y,w,h 坐标填入文本框。
+        复用截图遮罩逻辑，框选后不保存图片，只将区域坐标写入编辑框。
+        """
+        from PyQt6.QtWidgets import QDialog, QApplication
+        from PyQt6.QtCore import Qt, QRect, QPoint
+        from PyQt6.QtGui import QPainter, QPixmap, QColor, QPen, QFont, QCursor
+
+        app = QApplication.instance()
+
+        # 截全屏作为背景
+        screen_shots = []
+        for scr in app.screens():
+            pm = scr.grabWindow(0)
+            screen_shots.append((scr.geometry(), pm))
+
+        total_logical = QRect()
+        for geom, _ in screen_shots:
+            total_logical = total_logical.united(geom)
+
+        main_dpr = app.primaryScreen().devicePixelRatio()
+        canvas_w = int(total_logical.width()  * main_dpr)
+        canvas_h = int(total_logical.height() * main_dpr)
+        full_pixmap = QPixmap(canvas_w, canvas_h)
+        full_pixmap.fill(QColor(0, 0, 0))
+        painter = QPainter(full_pixmap)
+        for geom, pm in screen_shots:
+            px = int((geom.x() - total_logical.x()) * main_dpr)
+            py = int((geom.y() - total_logical.y()) * main_dpr)
+            painter.drawPixmap(px, py, pm)
+        painter.end()
+
+        class RegionSelectDialog(QDialog):
+            def __init__(self_d):
+                super().__init__(None)
+                self_d.setWindowFlags(
+                    Qt.WindowType.FramelessWindowHint |
+                    Qt.WindowType.WindowStaysOnTopHint |
+                    Qt.WindowType.Tool
+                )
+                self_d.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+                self_d.setMouseTracking(True)
+                self_d.setGeometry(total_logical)
+                self_d._offset = total_logical.topLeft()
+                self_d._start    = QPoint()
+                self_d._end      = QPoint()
+                self_d._dragging = False
+                self_d._has_sel  = False
+                self_d.selection_rect = None
+                self_d._bg = full_pixmap.scaled(
+                    total_logical.width(), total_logical.height(),
+                    Qt.AspectRatioMode.IgnoreAspectRatio,
+                    Qt.TransformationMode.FastTransformation
+                )
+
+            def showEvent(self_d, ev):
+                super().showEvent(ev)
+                self_d.activateWindow()
+                self_d.setFocus()
+
+            def _sel_rect(self_d):
+                x1 = min(self_d._start.x(), self_d._end.x())
+                y1 = min(self_d._start.y(), self_d._end.y())
+                x2 = max(self_d._start.x(), self_d._end.x())
+                y2 = max(self_d._start.y(), self_d._end.y())
+                return QRect(x1, y1, x2 - x1, y2 - y1)
+
+            def paintEvent(self_d, event):
+                p = QPainter(self_d)
+                p.drawPixmap(0, 0, self_d._bg)
+                p.fillRect(self_d.rect(), QColor(0, 0, 0, 80))
+                if (self_d._dragging or self_d._has_sel) and not self_d._start.isNull():
+                    sel = self_d._sel_rect()
+                    if sel.width() > 2 and sel.height() > 2:
+                        p.drawPixmap(sel, self_d._bg, sel)
+                        p.setPen(QPen(QColor(30, 144, 255), 2))
+                        p.drawRect(sel)
+                        info = f"{sel.width()} × {sel.height()}"
+                        font = QFont()
+                        font.setPointSize(10)
+                        font.setBold(True)
+                        p.setFont(font)
+                        p.setPen(QColor(255, 255, 255))
+                        tx = sel.left()
+                        ty = sel.top() - 6 if sel.top() > 22 else sel.bottom() + 18
+                        fm = p.fontMetrics()
+                        tw = fm.horizontalAdvance(info)
+                        p.fillRect(tx, ty - 14, tw + 8, 18, QColor(0, 0, 0, 160))
+                        p.drawText(tx + 4, ty, info)
+                tip = "拖动框选搜索区域  |  松开确认  |  Esc 取消"
+                font2 = QFont()
+                font2.setPointSize(10)
+                p.setFont(font2)
+                fm2 = p.fontMetrics()
+                tw2 = fm2.horizontalAdvance(tip)
+                p.fillRect(self_d.width() - tw2 - 20, self_d.height() - 34,
+                           tw2 + 16, 24, QColor(0, 0, 0, 160))
+                p.setPen(QColor(255, 255, 255))
+                p.drawText(self_d.width() - tw2 - 12, self_d.height() - 16, tip)
+
+            def mousePressEvent(self_d, ev):
+                if ev.button() == Qt.MouseButton.LeftButton:
+                    self_d._start    = ev.pos()
+                    self_d._end      = ev.pos()
+                    self_d._dragging = True
+                    self_d._has_sel  = False
+                    self_d.update()
+
+            def mouseMoveEvent(self_d, ev):
+                if self_d._dragging:
+                    self_d._end = ev.pos()
+                    self_d.update()
+
+            def mouseReleaseEvent(self_d, ev):
+                if ev.button() == Qt.MouseButton.LeftButton and self_d._dragging:
+                    self_d._end      = ev.pos()
+                    self_d._dragging = False
+                    self_d._has_sel  = True
+                    sel = self_d._sel_rect()
+                    if sel.width() > 5 and sel.height() > 5:
+                        self_d.selection_rect = QRect(
+                            sel.x() + self_d._offset.x(),
+                            sel.y() + self_d._offset.y(),
+                            sel.width(), sel.height()
+                        )
+                        self_d.accept()
+                    else:
+                        self_d._has_sel = False
+                        self_d.update()
+
+            def keyPressEvent(self_d, ev):
+                if ev.key() == Qt.Key.Key_Escape:
+                    self_d.reject()
+
+        dlg = RegionSelectDialog()
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selection_rect:
+            return
+
+        sel = dlg.selection_rect
+        edit.setText(f"{sel.x()},{sel.y()},{sel.width()},{sel.height()}")
+
+    def _pick_window_control(self, edit: QLineEdit, is_window: bool, is_control: bool):
+        """
+        选窗口：独立 Win32 线程运行，悬停到目标窗口后按 F2 确认，Esc 取消。
+          - 提示条：不透明深色 QLabel，始终置顶
+          - 无 GDI 遮罩（已移除，避免偏移问题）
+        """
+        # ── 选控件 → OCR 方式 ──
+        if is_control:
+            self._pick_control_by_ocr(edit)
+            return
+
+        import ctypes
+        import ctypes.wintypes
+        import threading
+
+        from PyQt6.QtWidgets import QApplication, QLabel
+        from PyQt6.QtCore import Qt, QTimer
+
+        user32 = ctypes.windll.user32
+        GWL_EXSTYLE      = -20
+        WS_EX_NOACTIVATE = 0x08000000
+
+        app = QApplication.instance()
+
+        # ── 提示条（不透明深色，不抢焦点）──
+        tip = QLabel("悬停到目标窗口，按 F2 确认  |  Esc 取消", None)
+        tip.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool)
+        tip.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        tip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        tip.setStyleSheet(
+            "background:#1a1a2e; color:white; font-size:13px;"
+            " padding:8px 18px; border-radius:6px;")
+        tip.adjustSize()
+        sg = app.primaryScreen().geometry()
+        tip.move(sg.center().x() - tip.width() // 2, sg.bottom() - tip.height() - 20)
+        tip.show()
+        hwnd_tip = int(tip.winId())
+        ex = user32.GetWindowLongW(hwnd_tip, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd_tip, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE)
+
+        # ── 线程通信 ──
+        result = {"title": None, "class_name": None, "process_name": None, "hwnd": 0, "ok": False}
+        done_event = threading.Event()
+
+        def _gdi_thread():
+            """独立 Win32 线程：轮询鼠标位置，F2 确认，Esc 取消。"""
+            class POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+            def _get_window_text(hwnd):
+                buf = ctypes.create_unicode_buffer(512)
+                user32.GetWindowTextW(hwnd, buf, 512)
+                return buf.value
+
+            def _get_window_class(hwnd):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, buf, 256)
+                return buf.value
+
+            def _get_process_name(hwnd):
+                pid = ctypes.wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                try:
+                    import psutil
+                    proc = psutil.Process(pid.value)
+                    return proc.name()
+                except Exception:
+                    return ""
+
+            cur_hwnd = -1
+            import time as _time
+
+            # 先等鼠标松开（防止进入后立即误触）
+            while user32.GetAsyncKeyState(0x01) & 0x8000:
+                _time.sleep(0.02)
+
+            while True:
+                _time.sleep(0.04)  # 25fps
+
+                pt = POINT()
+                user32.GetCursorPos(ctypes.byref(pt))
+                wfp = ctypes.wintypes.POINT()
+                wfp.x, wfp.y = pt.x, pt.y
+                hwnd = user32.WindowFromPoint(wfp)
+
+                # 忽略提示条
+                if hwnd == hwnd_tip:
+                    hwnd = 0
+
+                # 找根窗口
+                if hwnd:
+                    root = user32.GetAncestor(hwnd, 2)  # GA_ROOT
+                    if root:
+                        hwnd = root
+
+                cur_hwnd = hwnd
+
+                # F2 = 0x71 确认
+                if user32.GetAsyncKeyState(0x71) & 0x8000:
+                    result["title"] = _get_window_text(cur_hwnd) if cur_hwnd else ""
+                    result["class_name"] = _get_window_class(cur_hwnd) if cur_hwnd else ""
+                    result["process_name"] = _get_process_name(cur_hwnd) if cur_hwnd else ""
+                    result["hwnd"] = cur_hwnd
+                    result["ok"]    = True
+                    done_event.set()
+                    return
+
+                # Esc = 0x1B 取消
+                if user32.GetAsyncKeyState(0x1B) & 0x8000:
+                    done_event.set()
+                    return
+
+        t = threading.Thread(target=_gdi_thread, daemon=True)
+        t.start()
+
+        # ── Qt 侧轮询 done_event，完成后回填结果 ──
+        def _check_done():
+            if done_event.is_set():
+                tip.hide()
+                tip.deleteLater()
+                if result["ok"] and result["title"] is not None:
+                    edit.setText(result["title"])
+                    # 所有窗口控件功能块都支持自动回填 class_name 和 process_name
+                    _win_block_types = {
+                        "win_click_offset", "win_click_control", "win_input_control",
+                        "win_get_control_text", "win_wait_control", "win_find_control",
+                        "win_find_window", "win_wait_window", "win_close_window",
+                    }
+                    if self.block.block_type in _win_block_types:
+                        cn_widget = self._widgets.get("class_name")
+                        pn_widget = self._widgets.get("process_name")
+                        if cn_widget is not None and result["class_name"]:
+                            # window_class_picker 类型的 widget 是 QWidget 容器，
+                            # 内部 QLineEdit 通过 _line_edit 属性暴露
+                            if hasattr(cn_widget, "_line_edit"):
+                                cn_widget._line_edit.setText(result["class_name"])
+                            elif hasattr(cn_widget, "setText"):
+                                cn_widget.setText(result["class_name"])
+                            elif hasattr(cn_widget, "_edit"):
+                                cn_widget._edit.setText(result["class_name"])
+                            else:
+                                from PyQt6.QtWidgets import QLineEdit as _QLE2
+                                _le = cn_widget.findChild(_QLE2)
+                                if _le:
+                                    _le.setText(result["class_name"])
+                        if pn_widget is not None and result["process_name"]:
+                            if hasattr(pn_widget, "_line_edit"):
+                                pn_widget._line_edit.setText(result["process_name"])
+                            elif hasattr(pn_widget, "setText"):
+                                pn_widget.setText(result["process_name"])
+                            elif hasattr(pn_widget, "_edit"):
+                                pn_widget._edit.setText(result["process_name"])
+                            else:
+                                from PyQt6.QtWidgets import QLineEdit as _QLE2
+                                _le = pn_widget.findChild(_QLE2)
+                                if _le:
+                                    _le.setText(result["process_name"])
+            else:
+                QTimer.singleShot(50, _check_done)
+
+        QTimer.singleShot(50, _check_done)
+
+    def _pick_control_by_ocr(self, edit: QLineEdit):
+        """
+        OCR 方式选控件文字：
+          1. 从 window_title 参数（同一功能块）读取目标窗口标题
+          2. 用 Win32 将目标窗口前置
+          3. 最小化 AutoFlow 主窗口（避免遮挡目标）
+          4. 延时 400ms 后显示框选 UI（全屏截图背景 + 拖拽框选）
+          5. 框选区域截图 → Windows.Media.OCR 识别（无需额外安装）
+          6. 识别结果填入 edit；还原主窗口
+        """
+        import ctypes
+        import ctypes.wintypes
+        import re as _re
+
+        from PyQt6.QtWidgets import (QDialog, QApplication, QMessageBox,
+                                     QWidget, QLabel)
+        from PyQt6.QtCore import Qt, QTimer, QRect, QPoint
+        from PyQt6.QtGui import (QPainter, QColor, QPen, QFont,
+                                 QCursor, QPixmap)
+
+        user32 = ctypes.windll.user32
+
+        # ── 1. 读取同一功能块编辑器中的 window_title ──
+        win_title_widget = self._widgets.get("window_title")
+        win_title = ""
+        if win_title_widget is not None:
+            if hasattr(win_title_widget, "text"):
+                win_title = win_title_widget.text().strip()
+            elif hasattr(win_title_widget, "findChild"):
+                from PyQt6.QtWidgets import QLineEdit as _QLE
+                child = win_title_widget.findChild(_QLE)
+                if child:
+                    win_title = child.text().strip()
+
+        if not win_title:
+            QMessageBox.warning(self, "提示",
+                "请先填写「窗口标题」，再使用「选控件」功能。\n"
+                "选控件将把该窗口前置，然后截图框选识别文字。")
+            return
+
+        # ── 2. 前置目标窗口 ──
+        target_hwnd = 0
+        pattern = _re.compile(win_title.replace("*", ".*"), _re.IGNORECASE)
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _enum_cb(h, _):
+            nonlocal target_hwnd
+            buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(h, buf, 512)
+            if pattern.search(buf.value) and user32.IsWindowVisible(h):
+                target_hwnd = h
+                return False
+            return True
+
+        user32.EnumWindows(_enum_cb, 0)
+        if target_hwnd:
+            # 恢复最小化 + 前置
+            SW_RESTORE = 9
+            user32.ShowWindow(target_hwnd, SW_RESTORE)
+            user32.SetForegroundWindow(target_hwnd)
+
+        # ── 3. 最小化 AutoFlow 主窗口 ──
+        # 找到主窗口（最顶层 parent）
+        main_win = self
+        while main_win.parent():
+            main_win = main_win.parent()
+        main_win.showMinimized()
+
+        app = QApplication.instance()
+        dpr = app.primaryScreen().devicePixelRatio()
+
+        # ── 4. 延时后开始框选 ──
+        def _do_select():
+            # 全屏截图
+            screens = app.screens()
+            total_rect = QRect()
+            for s in screens:
+                total_rect = total_rect.united(s.geometry())
+
+            canvas_w = int(total_rect.width()  * dpr)
+            canvas_h = int(total_rect.height() * dpr)
+            full_pm = QPixmap(canvas_w, canvas_h)
+            full_pm.fill(QColor(0, 0, 0))
+            tmp_p = QPainter(full_pm)
+            for s in screens:
+                pm = s.grabWindow(0)
+                dx = int((s.geometry().x() - total_rect.x()) * dpr)
+                dy = int((s.geometry().y() - total_rect.y()) * dpr)
+                tmp_p.drawPixmap(dx, dy, pm)
+            tmp_p.end()
+            bg = full_pm.scaled(total_rect.width(), total_rect.height(),
+                                Qt.AspectRatioMode.IgnoreAspectRatio,
+                                Qt.TransformationMode.FastTransformation)
+
+            # ── 框选遮罩 Dialog ──
+            class SelectionDialog(QDialog):
+                def __init__(self_d):
+                    super().__init__(None)
+                    self_d.setWindowFlags(
+                        Qt.WindowType.FramelessWindowHint |
+                        Qt.WindowType.WindowStaysOnTopHint |
+                        Qt.WindowType.Tool)
+                    self_d.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                    self_d.setGeometry(total_rect)
+                    self_d.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+                    self_d._bg = bg
+                    self_d._start  = QPoint()
+                    self_d._end    = QPoint()
+                    self_d._drawing = False
+                    self_d.selection_rect = QRect()
+
+                    tip = QLabel("框选要识别的文字区域  |  Esc 取消", self_d)
+                    tip.setStyleSheet(
+                        "background:rgba(0,0,0,200);color:white;"
+                        "padding:5px 12px;border-radius:4px;font-size:13px;")
+                    tip.adjustSize()
+                    tip.move(16, 16)
+
+                def mousePressEvent(self_d, ev):
+                    if ev.button() == Qt.MouseButton.LeftButton:
+                        self_d._start = ev.pos()
+                        self_d._end   = ev.pos()
+                        self_d._drawing = True
+                        self_d.update()
+
+                def mouseMoveEvent(self_d, ev):
+                    if self_d._drawing:
+                        self_d._end = ev.pos()
+                        self_d.update()
+
+                def mouseReleaseEvent(self_d, ev):
+                    if ev.button() == Qt.MouseButton.LeftButton and self_d._drawing:
+                        self_d._drawing = False
+                        self_d._end = ev.pos()
+                        r = QRect(self_d._start, self_d._end).normalized()
+                        if r.width() > 4 and r.height() > 4:
+                            self_d.selection_rect = r
+                            self_d.accept()
+                        else:
+                            self_d.update()
+
+                def paintEvent(self_d, ev):
+                    p = QPainter(self_d)
+                    p.drawPixmap(0, 0, self_d._bg)
+                    p.fillRect(self_d.rect(), QColor(0, 0, 0, 80))
+                    r = QRect(self_d._start, self_d._end).normalized()
+                    if r.isValid():
+                        p.drawPixmap(r, self_d._bg, r)
+                        p.fillRect(r, QColor(30, 144, 255, 30))
+                        p.setPen(QPen(QColor(30, 144, 255), 2))
+                        p.drawRect(r)
+
+                def keyPressEvent(self_d, ev):
+                    if ev.key() == Qt.Key.Key_Escape:
+                        self_d.reject()
+
+            dlg = SelectionDialog()
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                main_win.showNormal()
+                main_win.activateWindow()
+                return
+
+            sel = dlg.selection_rect
+            if not sel.isValid():
+                main_win.showNormal()
+                main_win.activateWindow()
+                return
+
+            # ── 5. 裁剪截图并 OCR ──
+            # 用 DPI 缩放换算回物理坐标裁剪
+            px_x = int(sel.x()      * dpr)
+            px_y = int(sel.y()      * dpr)
+            px_w = int(sel.width()  * dpr)
+            px_h = int(sel.height() * dpr)
+            cropped = full_pm.copy(px_x, px_y, px_w, px_h)
+
+            text = BlockEditDialog._ocr_pixmap(cropped)
+
+            # ── 6. 还原主窗口，写入结果 ──
+            main_win.showNormal()
+            main_win.activateWindow()
+            main_win.raise_()
+
+            if text:
+                edit.setText(text.strip())
+            else:
+                QMessageBox.information(
+                    main_win, "OCR 未识别到文字",
+                    "选区内未能识别到文字，请尝试更大的选区或清晰度更高的区域。")
+
+        QTimer.singleShot(500, _do_select)
+
+    def _pick_window_offset(self, window_picker_widget):
+        """
+        选偏移点：独立 Win32 线程运行 GDI 边框 + 十字线，F2 确认 / Esc 取消。
+          1. 找到目标窗口并前置激活（失败则最小化自身）
+          2. 独立线程绘制窗口边框 + 鼠标位置十字线
+          3. 提示条实时显示相对坐标 (x, y)
+          4. F2 键确认 → 回传 offset_x / offset_y
+        """
+        import ctypes
+        import ctypes.wintypes
+        import re as _re
+        import threading
+
+        from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox
+        from PyQt6.QtCore import Qt, QTimer
+
+        win_title = window_picker_widget.text().strip()
+        if not win_title:
+            QMessageBox.warning(self, "提示", "请先填写窗口标题，再选偏移点。")
+            return
+
+        user32 = ctypes.windll.user32
+        GWL_EXSTYLE      = -20
+        WS_EX_NOACTIVATE = 0x08000000
+
+        # 找到目标窗口
+        pattern    = _re.compile(win_title.replace("*", ".*"), _re.IGNORECASE)
+        target_hwnd = 0
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        def _enum_cb(h, _):
+            nonlocal target_hwnd
+            buf = ctypes.create_unicode_buffer(512)
+            user32.GetWindowTextW(h, buf, 512)
+            if pattern.search(buf.value) and user32.IsWindowVisible(h):
+                target_hwnd = h
+                return False
+            return True
+
+        user32.EnumWindows(_enum_cb, 0)
+        if not target_hwnd:
+            QMessageBox.warning(self, "提示", f"未找到窗口：{win_title}\n请确认窗口已打开。")
+            return
+
+        # 前置目标窗口
+        user32.ShowWindow(target_hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(target_hwnd)
+        import time as _time; _time.sleep(0.1)
+
+        r = ctypes.wintypes.RECT()
+        user32.GetWindowRect(target_hwnd, ctypes.byref(r))
+        win_l, win_t, win_r, win_b = r.left, r.top, r.right, r.bottom
+
+        app = QApplication.instance()
+
+        # 如果前置失败（AutoFlow仍在前台），最小化自身
+        main_win = self
+        while main_win.parent():
+            main_win = main_win.parent()
+        _minimized = False
+        if user32.GetForegroundWindow() != target_hwnd:
+            main_win.showMinimized()
+            _minimized = True
+            _time.sleep(0.2)
+
+        # ── 提示条（实时显示坐标）──
+        tip = QLabel("移到窗口内：(?, ?)  |  F2 确认  |  Esc 取消", None)
+        tip.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool)
+        tip.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        tip.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        tip.setStyleSheet(
+            "background:#1a1a2e; color:white; font-size:13px;"
+            " padding:8px 18px; border-radius:6px;")
+        tip.adjustSize()
+        sg = app.primaryScreen().geometry()
+        tip.move(sg.center().x() - tip.width() // 2, sg.bottom() - tip.height() - 20)
+        tip.show()
+        hwnd_tip = int(tip.winId())
+        ex = user32.GetWindowLongW(hwnd_tip, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd_tip, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE)
+
+        # ── 线程通信 ──
+        result    = {"ox": None, "oy": None, "ok": False}
+        done_evt  = threading.Event()
+        coord_box = {"ox": 0, "oy": 0, "in_win": False}  # 供 Qt 侧更新提示条
+
+        def _gdi_thread():
+            class POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+            last_in_win_px = -1
+            last_in_win_py = -1
+
+            # 先等鼠标松开
+            import time as _t2
+            while user32.GetAsyncKeyState(0x01) & 0x8000:
+                _t2.sleep(0.02)
+
+            while True:
+                _t2.sleep(0.04)
+
+                pt = POINT()
+                user32.GetCursorPos(ctypes.byref(pt))
+                px, py = pt.x, pt.y
+                in_win = (win_l <= px <= win_r and win_t <= py <= win_b)
+
+                # 更新提示条数据
+                coord_box["ox"]     = px - win_l
+                coord_box["oy"]     = py - win_t
+                coord_box["in_win"] = in_win
+
+                # 记录最后一次在窗口内的鼠标位置
+                if in_win:
+                    last_in_win_px, last_in_win_py = px, py
+
+                # F2 = 0x71 确认
+                if user32.GetAsyncKeyState(0x71) & 0x8000:
+                    if last_in_win_px >= 0 and last_in_win_py >= 0:
+                        result["ox"] = last_in_win_px - win_l
+                        result["oy"] = last_in_win_py - win_t
+                    else:
+                        result["ox"] = max(0, min(px - win_l, win_r - win_l))
+                        result["oy"] = max(0, min(py - win_t, win_b - win_t))
+                    result["ok"] = True
+                    done_evt.set()
+                    return
+
+                # Esc = 0x1B 取消
+                if user32.GetAsyncKeyState(0x1B) & 0x8000:
+                    done_evt.set()
+                    return
+
+        threading.Thread(target=_gdi_thread, daemon=True).start()
+
+        # ── Qt 侧：轮询 done_evt + 更新提示条文字 ──
+        def _check_done():
+            if done_evt.is_set():
+                tip.hide()
+                tip.deleteLater()
+                if _minimized:
+                    main_win.showNormal()
+                    main_win.activateWindow()
+                if result["ok"]:
+                    ox = result["ox"]
+                    oy = result["oy"]
+                    try:
+                        from PyQt6.QtWidgets import QDoubleSpinBox, QSpinBox
+                        for w_key, val in [("offset_x", ox), ("offset_y", oy)]:
+                            widget = self._widgets.get(w_key)
+                            if widget is None:
+                                continue
+                            # number_or_var → QLineEdit
+                            if isinstance(widget, QLineEdit):
+                                widget.setText(str(int(val)))
+                            elif isinstance(widget, (QDoubleSpinBox, QSpinBox)):
+                                widget.setValue(val)
+                            elif hasattr(widget, "setValue"):
+                                widget.setValue(val)
+                            elif hasattr(widget, "setText"):
+                                widget.setText(str(int(val)))
+                    except Exception as _e:
+                        import traceback; traceback.print_exc()
+            else:
+                # 更新提示条文字
+                if coord_box["in_win"]:
+                    tip.setText(
+                        f"偏移 ({coord_box['ox']}, {coord_box['oy']})  |  F2 确认  |  Esc 取消")
+                    tip.adjustSize()
+                    sg2 = app.primaryScreen().geometry()
+                    tip.move(sg2.center().x() - tip.width() // 2,
+                             sg2.bottom() - tip.height() - 20)
+                QTimer.singleShot(50, _check_done)
+
+        QTimer.singleShot(50, _check_done)
 
     def _pick_folder(self, edit: QLineEdit):
         path = QFileDialog.getExistingDirectory(self, "选择文件夹")
@@ -2168,9 +3482,20 @@ class BlockEditDialog(QDialog):
             return w.text() if isinstance(w, AppLauncherPickerWidget) else ""
         elif ptype == "time":           return w.time().toString("HH:mm")
         elif ptype == "hotkey_input":   return w.text()
-        elif ptype == "window_picker":  return w.text()
+        elif ptype == "window_picker":
+            # win_click_offset 的 window_title 参数是复合行（WindowPickerEdit + 按钮）
+            if self.block.block_type == "win_click_offset" and key == "window_title":
+                wp = w.findChild(WindowPickerEdit)
+                return wp.text() if wp else ""
+            return w.text()
         elif ptype in ("process_picker", "process_window_picker"):
             return w.text()
+        elif ptype == "window_class_picker":
+            # 复合 widget（QLineEdit + 识别按钮），取第一个 QLineEdit 的文本
+            if isinstance(w, QLineEdit):
+                return w.text()
+            edit = w.findChild(QLineEdit)
+            return edit.text() if edit else ""
         elif ptype == "coord_picker":
             return w.get_value() if isinstance(w, CoordPickerEdit) else {"x": 0, "y": 0, "mode": "pixel"}
         elif ptype == "task_picker":
@@ -2191,7 +3516,11 @@ class BlockEditDialog(QDialog):
             except Exception:
                 return txt
         else:
-            return w.text()
+            # text 类型：可能是 QLineEdit，也可能是含按钮的 QWidget 容器
+            if isinstance(w, QLineEdit):
+                return w.text()
+            edit = w.findChild(QLineEdit)
+            return edit.text() if edit else (w.text() if hasattr(w, 'text') else "")
 
     def _save(self):
         self.block.comment = self._comment.text()
@@ -2548,14 +3877,14 @@ class AppLauncherPickerWidget(QWidget):
 
         browse_btn = QPushButton("📂 浏览")
         browse_btn.setObjectName("btn_flat")
-        browse_btn.setFixedWidth(62)
+        browse_btn.setMinimumWidth(62)
         browse_btn.setToolTip("打开文件浏览器选择可执行文件")
         browse_btn.clicked.connect(self._browse_file)
         hl.addWidget(browse_btn)
 
         app_btn = QPushButton("📋 应用")
         app_btn.setObjectName("btn_flat")
-        app_btn.setFixedWidth(62)
+        app_btn.setMinimumWidth(62)
         app_btn.setToolTip("从已安装应用列表中选择")
         app_btn.clicked.connect(self._pick_app)
         hl.addWidget(app_btn)

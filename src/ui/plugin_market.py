@@ -121,7 +121,7 @@ class MarketPluginCard(QFrame):
         if repo_url:
             source_btn = QPushButton("📂 源码")
             source_btn.setObjectName("btn_flat")
-            source_btn.setFixedWidth(88)
+            source_btn.setMinimumWidth(88)
             source_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             source_btn.clicked.connect(lambda: webbrowser.open(repo_url))
             btn_col.addWidget(source_btn)

@@ -520,8 +520,23 @@
 #     - 安装包新增安装前清理逻辑：删除旧版 _internal 目录（依赖目录），
 #       避免新旧文件混用导致的问题；保留 plugins/ 等用户数据目录；
 
-VERSION       = "4.13.0"
-VERSION_TUPLE = (4, 13, 0)
+# v4.14.0  2026-03-30
+#   【窗口控件多特征识别增强】
+#   - 所有窗口控件功能块均支持 window_title(通配符) + class_name(精确) + process_name(精确) 三条件组合识别；
+#   - 新增 window_class_picker 参数类型：文本框 + [识别] 按钮，倒计时3秒后自动读取前台窗口类名；
+#   - process_name 使用 process_picker 类型（ProcessWindowPickerEdit mode=process）；
+#   - WindowPickerEdit 增强：选窗口后通过 on_picked(title, cls, proc) 回调同时回填 class_name/process_name；
+#   - _check_done 回填范围扩展到 9 个窗口控件块（win_click_offset/win_click_control 等）；
+#   - runner.py 新增通用 _find_hwnd_by_conditions() 辅助方法，多条件 AND 枚举窗口；
+#   - runner.py 新增完整 _win_wait_control / _win_find_control 执行逻辑；
+#   - _pick_window_control 移除 GDI 遮罩，改为轻量线程+F2键确认，彻底解决偏移问题；
+#   - 修复屏幕识别 screen_find_image 中文路径报错（numpy.fromfile + cv2.imdecode）；
+#   - 修复日志成双输出（删除 _log 中重复的 self.on_log() 直接调用）；
+#   - 新增搜索区域框选功能（_select_region 方法，填入 x,y,w,h 到文本框）；
+#   - 邮箱设置新增 12 个热门邮箱预设（QQ/163/Gmail/Outlook 等）；
+
+VERSION       = "4.14.0"
+VERSION_TUPLE = (4, 14, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

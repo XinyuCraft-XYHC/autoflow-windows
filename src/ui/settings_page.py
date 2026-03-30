@@ -226,6 +226,21 @@ class SettingsPage(QWidget):
         self._grp_smtp = QGroupBox(tr("settings.grp.smtp"))
         sf = QFormLayout(self._grp_smtp)
         sf.setSpacing(8)
+        
+        # SMTP 预设选择
+        self._smtp_preset = QComboBox()
+        self._smtp_preset.addItem("自定义", "custom")
+        self._smtp_preset.addItem("QQ邮箱", "qq")
+        self._smtp_preset.addItem("163邮箱", "163")
+        self._smtp_preset.addItem("126邮箱", "126")
+        self._smtp_preset.addItem("Gmail", "gmail")
+        self._smtp_preset.addItem("Outlook/Hotmail", "outlook")
+        self._smtp_preset.addItem("企业邮箱（腾讯）", "exmail")
+        self._smtp_preset.addItem("阿里云企业邮箱", "aliyun")
+        self._smtp_preset.addItem("腾讯企业邮箱", "tencent")
+        self._smtp_preset.currentIndexChanged.connect(self._on_smtp_preset_changed)
+        sf.addRow("预设配置", self._smtp_preset)
+        
         self._smtp_server = QLineEdit(); sf.addRow(tr("settings.smtp.server"), self._smtp_server)
         self._smtp_port   = FocusSpinBox(); self._smtp_port.setRange(1,65535); sf.addRow(tr("settings.smtp.port"), self._smtp_port)
         self._smtp_user   = QLineEdit(); sf.addRow(tr("settings.smtp.user"), self._smtp_user)
@@ -241,6 +256,21 @@ class SettingsPage(QWidget):
         self._grp_imap = QGroupBox(tr("settings.grp.imap"))
         imf = QFormLayout(self._grp_imap)
         imf.setSpacing(8)
+        
+        # IMAP 预设选择
+        self._imap_preset = QComboBox()
+        self._imap_preset.addItem("自定义", "custom")
+        self._imap_preset.addItem("QQ邮箱", "qq")
+        self._imap_preset.addItem("163邮箱", "163")
+        self._imap_preset.addItem("126邮箱", "126")
+        self._imap_preset.addItem("Gmail", "gmail")
+        self._imap_preset.addItem("Outlook/Hotmail", "outlook")
+        self._imap_preset.addItem("企业邮箱（腾讯）", "exmail")
+        self._imap_preset.addItem("阿里云企业邮箱", "aliyun")
+        self._imap_preset.addItem("腾讯企业邮箱", "tencent")
+        self._imap_preset.currentIndexChanged.connect(self._on_imap_preset_changed)
+        imf.addRow("预设配置", self._imap_preset)
+        
         self._imap_server = QLineEdit(); imf.addRow(tr("settings.imap.server"), self._imap_server)
         self._imap_port   = FocusSpinBox(); self._imap_port.setRange(1,65535); imf.addRow(tr("settings.imap.port"), self._imap_port)
         self._imap_user   = QLineEdit(); imf.addRow(tr("settings.imap.user"), self._imap_user)
@@ -260,6 +290,127 @@ class SettingsPage(QWidget):
         layout.addStretch()
         page.setWidget(container)
         return page
+
+    # ─── 邮箱预设配置 ───
+    # 邮箱预设配置数据
+    _EMAIL_PRESETS = {
+        "qq": {
+            "smtp_server": "smtp.qq.com",
+            "smtp_port": 465,
+            "smtp_ssl": True,
+            "imap_server": "imap.qq.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "163": {
+            "smtp_server": "smtp.163.com",
+            "smtp_port": 465,
+            "smtp_ssl": True,
+            "imap_server": "imap.163.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "126": {
+            "smtp_server": "smtp.126.com",
+            "smtp_port": 465,
+            "smtp_ssl": True,
+            "imap_server": "imap.126.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "gmail": {
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_ssl": False,
+            "imap_server": "imap.gmail.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "outlook": {
+            "smtp_server": "smtp-mail.outlook.com",
+            "smtp_port": 587,
+            "smtp_ssl": False,
+            "imap_server": "outlook.office365.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "exmail": {
+            "smtp_server": "smtp.exmail.qq.com",
+            "smtp_port": 465,
+            "smtp_ssl": True,
+            "imap_server": "imap.exmail.qq.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "aliyun": {
+            "smtp_server": "smtp.qiye.aliyun.com",
+            "smtp_port": 465,
+            "smtp_ssl": True,
+            "imap_server": "imap.qiye.aliyun.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+        "tencent": {
+            "smtp_server": "smtp.exmail.qq.com",
+            "smtp_port": 465,
+            "smtp_ssl": True,
+            "imap_server": "imap.exmail.qq.com",
+            "imap_port": 993,
+            "imap_ssl": True,
+        },
+    }
+
+    def _on_smtp_preset_changed(self, index: int = -1):
+        """SMTP预设选择变更处理"""
+        preset_code = self._smtp_preset.currentData()
+        if preset_code == "custom":
+            return  # 自定义模式，不自动填充
+        
+        preset = self._EMAIL_PRESETS.get(preset_code)
+        if not preset:
+            return
+        
+        # 只有当当前值是空或是默认值时才填充，避免覆盖用户已输入的内容
+        if not self._smtp_server.text().strip():
+            self._smtp_server.setText(preset["smtp_server"])
+        
+        if not self._smtp_port.value() or self._smtp_port.value() == 1:
+            self._smtp_port.setValue(preset["smtp_port"])
+        
+        self._smtp_ssl.setChecked(preset["smtp_ssl"])
+        
+        # 同步IMAP预设
+        self._imap_preset.blockSignals(True)
+        idx = self._imap_preset.findData(preset_code)
+        if idx >= 0:
+            self._imap_preset.setCurrentIndex(idx)
+        self._imap_preset.blockSignals(False)
+
+    def _on_imap_preset_changed(self, index: int = -1):
+        """IMAP预设选择变更处理"""
+        preset_code = self._imap_preset.currentData()
+        if preset_code == "custom":
+            return  # 自定义模式，不自动填充
+        
+        preset = self._EMAIL_PRESETS.get(preset_code)
+        if not preset:
+            return
+        
+        # 只有当当前值是空或是默认值时才填充，避免覆盖用户已输入的内容
+        if not self._imap_server.text().strip():
+            self._imap_server.setText(preset["imap_server"])
+        
+        if not self._imap_port.value() or self._imap_port.value() == 1:
+            self._imap_port.setValue(preset["imap_port"])
+        
+        self._imap_ssl.setChecked(preset["imap_ssl"])
+        
+        # 同步SMTP预设
+        self._smtp_preset.blockSignals(True)
+        idx = self._smtp_preset.findData(preset_code)
+        if idx >= 0:
+            self._smtp_preset.setCurrentIndex(idx)
+        self._smtp_preset.blockSignals(False)
 
     # ─── 外观/主题 ───
     def _build_theme_tab(self) -> QWidget:
@@ -959,7 +1110,7 @@ class SettingsPage(QWidget):
         update_hl.addWidget(self._update_status_lbl)
 
         check_btn = QPushButton("🔍 检查更新")
-        check_btn.setFixedWidth(110)
+        check_btn.setMinimumWidth(110)
         check_btn.setFixedHeight(28)
         check_btn.setStyleSheet(
             "QPushButton { font-size:11px; border-radius:5px; padding:2px 8px; "
