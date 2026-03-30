@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QScrollArea, QFormLayout, QComboBox, QDialogButtonBox,
     QLineEdit, QAbstractItemView
 )
-from PyQt6.QtGui import QDrag, QMimeData
+from PyQt6.QtGui import QDrag
+from PyQt6.QtCore import QMimeData
 
 from .effects import FadeStackedWidget, fade_in, show_toast, animate_dialog_show
 

@@ -453,8 +453,15 @@
 #   - 新增 docs/plugin-dev-guide.md：完整插件开发指南（快速开始/目录结构/功能块/触发器/
 #     API 参考/示例代码/调试/发布）；修复插件管理页「如何开发插件」链接 404 问题；
 
-VERSION       = "4.6.1"
-VERSION_TUPLE = (4, 6, 1)
+# v4.6.2   2026-03-30
+#   【崩溃修复 + 更新检测修复】
+#   - 修复打包后启动崩溃：main_window.py 将 QMimeData 从 PyQt6.QtGui 改回正确的
+#     PyQt6.QtCore（QMimeData 在 PyQt6 中属于 QtCore 模块，不属于 QtGui）；
+#   - 修复「检测更新」显示旧版本：GitHub API 国内网络超时时 fallback 到 Gitee，
+#     但 Gitee Release 未同步，显示 v4.3.1；现已在 Gitee 补全历史 Release；
+
+VERSION       = "4.6.2"
+VERSION_TUPLE = (4, 6, 2)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
