@@ -650,7 +650,7 @@ class ProcessWindowListDialog(QDialog):
                     pass
 
         if self._mode in ("window", "both"):
-            EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.HWND, ctypes.LPARAM)
+            EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.LPARAM)
             wins = []
             def _cb(hwnd, _):
                 if not ctypes.windll.user32.IsWindowVisible(hwnd):
@@ -786,7 +786,7 @@ class WindowClassListDialog(QDialog):
     def _refresh(self):
         import ctypes, ctypes.wintypes
         user32 = ctypes.windll.user32
-        EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.HWND, ctypes.LPARAM)
+        EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.LPARAM)
         wins = []
 
         def _cb(hwnd, _):
@@ -2266,7 +2266,11 @@ class BlockEditDialog(QDialog):
 
             def _do_pick_class(target_edit=edit_cls):
                 """弹出窗口列表，让用户选择要识别的窗口，自动填入类名，并回填进程名"""
-                dlg = WindowClassListDialog(self)
+                try:
+                    dlg = WindowClassListDialog(self)
+                except Exception as e:
+                    QMessageBox.warning(self, "错误", f"无法打开窗口选择器：{e}")
+                    return
                 if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_class:
                     target_edit.setText(dlg.selected_class)
                     # 同时尝试回填进程名字段（如果同一表单里有 process_name 字段）
@@ -2730,35 +2734,61 @@ class BlockEditDialog(QDialog):
                 f.write(png_bytes)
 
             # ── 方案1：PowerShell + Windows.Media.OCR ──
-            ps_script = (
-                "Add-Type -AssemblyName System.Runtime.WindowsRuntime; "
-                "$null = [Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]; "
-                "$null = [Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]; "
-                "function Await($task){ $type=[System.Runtime.CompilerServices.RuntimeHelpers]; "
-                "$type.GetType(); "
-                "[System.Threading.Tasks.Task]::Run({$task}).GetAwaiter().GetResult() } "
-                "$imgPath='IMG_PATH'; "
-                "$sf=Await([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath)); "
-                "$stream=Await($sf.OpenReadAsync()); "
-                "$dec=Await([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)); "
-                "$bmp=Await($dec.GetSoftwareBitmapAsync()); "
-                "$eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages(); "
-                "if(-not $eng){$lang=[Windows.Globalization.Language]::new('zh-Hans'); "
-                "$eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)}; "
-                "if(-not $eng){Write-Output ''; exit}; "
-                "$res=Await($eng.RecognizeAsync($bmp)); "
-                "Write-Output $res.Text"
-            ).replace("IMG_PATH", tmp_img.replace("\\", "\\\\"))
+            ps_script = r"""
+$imgPath = 'IMG_PATH'
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+[void][Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]
+[void][Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]
+[void][Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation,ContentType=WindowsRuntime]
+
+function Await-Task($WinRtTask) {
+    $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+        Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 } |
+        Select-Object -First 1)
+    $netTask = $asTask.MakeGenericMethod($WinRtTask.GetType().GetGenericArguments()[0]).Invoke($null, @($WinRtTask))
+    $netTask.Wait() | Out-Null
+    return $netTask.Result
+}
+
+try {
+    $sf      = Await-Task ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imgPath))
+    $stream  = Await-Task ($sf.OpenReadAsync())
+    $dec     = Await-Task ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream))
+    $bmp     = Await-Task ($dec.GetSoftwareBitmapAsync())
+    $eng     = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    if (-not $eng) {
+        $lang = [Windows.Globalization.Language]::new('zh-Hans')
+        $eng  = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
+    }
+    if (-not $eng) { Write-Output ''; exit }
+    $res = Await-Task ($eng.RecognizeAsync($bmp))
+    Write-Output $res.Text
+} catch {
+    Write-Output ''
+}
+""".replace("IMG_PATH", tmp_img.replace("\\", "\\\\"))
 
             try:
-                result = subprocess.run(
-                    ["powershell", "-NoProfile", "-NonInteractive",
-                     "-ExecutionPolicy", "Bypass", "-Command", ps_script],
-                    capture_output=True, text=True, timeout=20
-                )
-                text = (result.stdout or "").strip()
-                if text:
-                    return text
+                # 将脚本写入临时 .ps1 文件，用 -File 执行（避免 -Command 多行截断/编码问题）
+                fd2, tmp_ps1 = tempfile.mkstemp(suffix=".ps1")
+                os.close(fd2)
+                with open(tmp_ps1, "w", encoding="utf-8") as f:
+                    f.write(ps_script)
+                try:
+                    result = subprocess.run(
+                        ["powershell", "-NoProfile", "-NonInteractive",
+                         "-ExecutionPolicy", "Bypass", "-File", tmp_ps1],
+                        capture_output=True, text=True, timeout=25,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    text = (result.stdout or "").strip()
+                    if text:
+                        return text
+                finally:
+                    try:
+                        os.unlink(tmp_ps1)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
