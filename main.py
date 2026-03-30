@@ -307,8 +307,21 @@ def main():
 
     win = MainWindow(project_path=project_path, start_minimized=start_minimized)
 
+    # 读取启动后行为：--minimized 命令行参数优先（开机自启时使用）
+    # 否则按用户配置 launch_behavior 决定
     if not start_minimized:
-        win.show()
+        launch_behavior = getattr(win._project.config, 'launch_behavior', 'show')
+        if launch_behavior == 'tray':
+            # 隐藏至托盘，不显示主窗口
+            pass
+        elif launch_behavior == 'minimize':
+            # 先 show 再最小化（保证任务栏有图标）
+            win.show()
+            win.showMinimized()
+        else:
+            # 默认：打开主界面
+            win.show()
+    # start_minimized=True 时主窗口已在 __init__ 末尾通过 QTimer 隐藏
 
     # ── 首次使用：显示新手引导 ──
     if should_show_tutorial():

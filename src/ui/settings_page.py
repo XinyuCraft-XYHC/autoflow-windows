@@ -117,6 +117,7 @@ class SettingsPage(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(8, 8, 8, 8)
 
+
         self._grp_startup = QGroupBox(tr("settings.grp.startup"))
         gf  = QFormLayout(self._grp_startup)
         gf.setSpacing(10)
@@ -127,7 +128,14 @@ class SettingsPage(QWidget):
         for t in self.tasks:
             self._auto_task_combo.addItem(t.name, t.id)
         gf.addRow(tr("settings.auto_start_task"), self._auto_task_combo)
+        # 启动后行为
+        self._launch_behavior_combo = QComboBox()
+        self._launch_behavior_combo.addItem(tr("settings.launch_behavior.show"),     "show")
+        self._launch_behavior_combo.addItem(tr("settings.launch_behavior.minimize"), "minimize")
+        self._launch_behavior_combo.addItem(tr("settings.launch_behavior.tray"),     "tray")
+        gf.addRow(tr("settings.launch_behavior"), self._launch_behavior_combo)
         layout.addWidget(self._grp_startup)
+
 
         self._grp_ui = QGroupBox(tr("settings.grp.ui"))
         gf2  = QFormLayout(self._grp_ui)
@@ -1136,6 +1144,9 @@ class SettingsPage(QWidget):
         idx = self._auto_task_combo.findData(c.auto_start_task_id)
         if idx >= 0:
             self._auto_task_combo.setCurrentIndex(idx)
+        # 启动后行为
+        lb_idx = self._launch_behavior_combo.findData(getattr(c, 'launch_behavior', 'show'))
+        self._launch_behavior_combo.setCurrentIndex(lb_idx if lb_idx >= 0 else 0)
         self._minimize_cb.setChecked(c.minimize_to_tray)
         self._show_log_cb.setChecked(c.show_run_log)
         self._minimize_on_run_cb.setChecked(getattr(c, 'minimize_on_run', False))
@@ -1201,6 +1212,7 @@ class SettingsPage(QWidget):
 
         c.auto_start_enabled = self._auto_start_cb.isChecked()
         c.auto_start_task_id = self._auto_task_combo.currentData() or ""
+        c.launch_behavior    = self._launch_behavior_combo.currentData() or "show"
         c.minimize_to_tray   = self._minimize_cb.isChecked()
         c.show_run_log       = self._show_log_cb.isChecked()
         c.minimize_on_run    = self._minimize_on_run_cb.isChecked()
@@ -1340,6 +1352,13 @@ class SettingsPage(QWidget):
             self._grp_startup.setTitle(tr("settings.grp.startup"))
         if hasattr(self, '_auto_start_cb'):
             self._auto_start_cb.setText(tr("settings.auto_start"))
+        if hasattr(self, '_launch_behavior_combo'):
+            cur = self._launch_behavior_combo.currentData()
+            self._launch_behavior_combo.blockSignals(True)
+            self._launch_behavior_combo.setItemText(0, tr("settings.launch_behavior.show"))
+            self._launch_behavior_combo.setItemText(1, tr("settings.launch_behavior.minimize"))
+            self._launch_behavior_combo.setItemText(2, tr("settings.launch_behavior.tray"))
+            self._launch_behavior_combo.blockSignals(False)
         if hasattr(self, '_grp_ui'):
             self._grp_ui.setTitle(tr("settings.grp.ui"))
         if hasattr(self, '_minimize_cb'):

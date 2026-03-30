@@ -33,13 +33,18 @@ WIKI_URL             = f"{GITHUB_REPO_URL}/wiki"
 LANG_MARKET_OWNER    = "XinyuCraft-XYHC"
 LANG_MARKET_REPO     = "autoflow-languages"
 LANG_MARKET_URL      = f"https://github.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
-# index.json 直链（GitHub raw → jsDelivr CDN 备用，国内可访问）
+# index.json 三级备用源：GitHub raw → jsDelivr CDN → Gitee raw
 LANG_MARKET_INDEX    = (
     f"https://raw.githubusercontent.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
     "/main/index.json"
 )
 LANG_MARKET_INDEX_CDN = (
     f"https://cdn.jsdelivr.net/gh/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}@main/index.json"
+)
+# Gitee 镜像（国内最稳定）用户名 XinyuCraft-XYHC_admin
+LANG_MARKET_INDEX_GITEE = (
+    "https://gitee.com/XinyuCraft-XYHC_admin/autoflow-languages"
+    "/raw/main/index.json"
 )
 
 # ─── 社区插件市场 ───
@@ -52,6 +57,11 @@ PLUGIN_MARKET_INDEX  = (
 )
 PLUGIN_MARKET_INDEX_CDN = (
     f"https://cdn.jsdelivr.net/gh/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}@main/index.json"
+)
+# Gitee 镜像（国内最稳定）
+PLUGIN_MARKET_INDEX_GITEE = (
+    "https://gitee.com/XinyuCraft-XYHC_admin/autoflow-plugins"
+    "/raw/main/index.json"
 )
 # 发布插件的 Issue 模板（引导用户提交 PR）
 PLUGIN_SUBMIT_URL    = (
@@ -244,7 +254,9 @@ def fetch_language_market(callback: Callable[[list, Optional[str]], None],
         if data is None:
             data = _fetch_url_json(LANG_MARKET_INDEX_CDN, timeout)
         if data is None:
-            callback([], "无法连接到语言包市场，请检查网络连接\n（GitHub raw + jsDelivr CDN 均不可访问）")
+            data = _fetch_url_json(LANG_MARKET_INDEX_GITEE, timeout)
+        if data is None:
+            callback([], "无法连接到语言包市场，请检查网络连接\n（GitHub raw + jsDelivr CDN + Gitee 均不可访问）")
         else:
             callback(data if isinstance(data, list) else [], None)
 
@@ -263,7 +275,9 @@ def fetch_plugin_market(callback: Callable[[list, Optional[str]], None],
         if data is None:
             data = _fetch_url_json(PLUGIN_MARKET_INDEX_CDN, timeout)
         if data is None:
-            callback([], "无法连接到插件市场，请检查网络连接\n（GitHub raw + jsDelivr CDN 均不可访问）")
+            data = _fetch_url_json(PLUGIN_MARKET_INDEX_GITEE, timeout)
+        if data is None:
+            callback([], "无法连接到插件市场，请检查网络连接\n（GitHub raw + jsDelivr CDN + Gitee 均不可访问）")
         else:
             callback(data if isinstance(data, list) else [], None)
 

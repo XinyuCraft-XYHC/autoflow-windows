@@ -476,8 +476,17 @@
 #   - i18n.py 新增 update.* / plugin.market_btn / settings.lang_market_btn 翻译键；
 #   - Gitee 主仓库已同步（代码与 GitHub 一致）；
 
-VERSION       = "4.10.0"
-VERSION_TUPLE = (4, 10, 0)
+# v4.11.0  2026-03-30
+#   【市场连接优化 + 启动行为设置】
+#   - 语言包市场 / 插件市场新增 Gitee raw 第三备用源（GitHub raw → jsDelivr → Gitee），
+#     解决国内 GitHub + jsDelivr 均无法访问时的连接问题；
+#   - autoflow-languages / autoflow-plugins 已镜像推送至 Gitee（XinyuCraft-XYHC_admin）；
+#   - 新增「软件启动后」设置项（设置→通用→开机自启分组）：
+#     支持「打开主界面」/「最小化至任务栏」/「隐藏至托盘」三种模式，
+#     默认「打开主界面」；--minimized 命令行参数优先级高于该设置；
+
+VERSION       = "4.11.0"
+VERSION_TUPLE = (4, 11, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

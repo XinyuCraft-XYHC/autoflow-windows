@@ -1120,6 +1120,8 @@ class AppConfig:
     # 开机自启
     auto_start_enabled: bool = False
     auto_start_task_id: str = ""
+    # 启动后行为: "show"=打开主界面 / "minimize"=最小化至任务栏 / "tray"=隐藏至托盘
+    launch_behavior: str = "show"
     # 项目
     reopen_last_project: bool = True   # 启动时打开上次项目
     last_project_path: str = ""        # 上次打开的项目路径
