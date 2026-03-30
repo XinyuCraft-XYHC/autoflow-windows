@@ -11,8 +11,10 @@ import os as _os, types as _types
 _vmod = _types.ModuleType("_ver")
 with open(_os.path.join(SPECPATH, "src", "version.py"), encoding="utf-8") as _f:
     exec(_f.read(), _vmod.__dict__)
-APP_VERSION = _vmod.VERSION
-EXE_NAME    = f"AutoFlow_v{APP_VERSION}"
+APP_VERSION  = _vmod.VERSION
+EXE_NAME     = f"AutoFlow_v{APP_VERSION}"
+# onedir 模式：输出文件夹名（用于 COLLECT 和 Inno Setup 引用）
+DIR_NAME     = EXE_NAME
 
 # ── 手动枚举 src 下所有模块，确保 settings_page 等不被遗漏 ──
 hiddenimports = [
@@ -246,30 +248,16 @@ if _removed:
 
 pyz = PYZ(a.pure)
 
+# ── onedir 模式：EXE 只含启动器，binaries/datas 由 COLLECT 单独处理 ──
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    [],          # onedir 不在 EXE 里嵌入 binaries/datas
     name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_dir=r'C:\Tools\upx',
-    upx_exclude=[
-        # Qt 核心 DLL 不压缩（UPX 对大型 Qt DLL 压缩率低且增加解压时间）
-        'Qt6Core.dll',
-        'Qt6Gui.dll',
-        'Qt6Widgets.dll',
-        # OpenCV 不压缩（已经是压缩格式）
-        'opencv_world*.dll',
-        # Python 解释器核心不压缩（影响启动速度）
-        'python3*.dll',
-        '_ssl.pyd',
-        '_hashlib.pyd',
-    ],
+    upx=False,   # onedir 启动器本身不需要 UPX，DLL 们已 zlib 解压到文件夹
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
@@ -278,4 +266,15 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets\\autoflow.ico'],
+)
+
+# ── COLLECT：把所有 DLL、数据、PYZ 汇集到 dist/<DIR_NAME>/ 文件夹 ──
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name=DIR_NAME,
 )

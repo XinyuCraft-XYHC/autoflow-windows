@@ -1220,9 +1220,14 @@ class SettingsPage(QWidget):
             app_name = "AutoFlow"
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
             if enable:
-                exe = sys.executable
-                script = os.path.abspath(sys.argv[0])
-                cmd = f'"{exe}" "{script}" --minimized'
+                if getattr(sys, "frozen", False):
+                    # 打包 exe（onefile / onedir）：sys.argv[0] 就是 exe 真实路径
+                    cmd = f'"{os.path.abspath(sys.argv[0])}" --minimized'
+                else:
+                    # 开发环境：python.exe main.py
+                    exe = sys.executable
+                    script = os.path.abspath(sys.argv[0])
+                    cmd = f'"{exe}" "{script}" --minimized'
                 winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, cmd)
             else:
                 try:
