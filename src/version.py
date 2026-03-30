@@ -460,16 +460,20 @@
 #   - 修复「检测更新」显示旧版本：GitHub API 国内网络超时时 fallback 到 Gitee，
 #     但 Gitee Release 未同步，显示 v4.3.1；现已在 Gitee 补全历史 Release；
 
-# v4.8.0   2026-03-30
-#   【切换 onedir 分发模式 + Windows 安装包】
-#   - spec 从 onefile 改为 onedir（COLLECT 模式）：程序启动无需解压，速度提升 3-5 倍；
-#   - 新增 installer.iss（Inno Setup 6 脚本）：生成专业 Windows 安装包；
-#     含开始菜单/桌面快捷方式、卸载程序、安装目录选择、协议页面；
-#   - 修复开机自启注册表写入（frozen 模式直接用 sys.argv[0]，不再拼接 python.exe）；
-#   - build.py 支持 onedir 打包 + 自动调用 Inno Setup 生成安装包；
+# v4.9.0   2026-03-30
+#   【语言包市场 + 插件市场 + 安装包中文化】
+#   - 安装包（installer.iss）加入中文语言包（ChineseSimplified.isl）；
+#     桌面快捷方式改为默认勾选；检测 AutoFlow 运行时的提示文字汉化；
+#   - 社区语言包仓库（autoflow-languages）：日/韩/法/德/俄 5 种语言包示例；
+#   - 社区插件仓库（autoflow-plugins）：系统监控/剪贴板历史/HTTP请求 3 个示例插件；
+#   - 设置→外观新增「🌐 语言包市场」入口：在线浏览/一键下载社区语言包；
+#   - 插件管理页新增「🛒 插件市场」入口：在线浏览/一键安装社区插件；
+#   - 插件市场底部「📤 发布我的插件」：引导开发者提交 PR 到市场仓库；
+#   - updater.py 新增 fetch_language_market / fetch_plugin_market /
+#     download_language / download_plugin 四个异步函数；
 
-VERSION       = "4.8.0"
-VERSION_TUPLE = (4, 8, 0)
+VERSION       = "4.9.0"
+VERSION_TUPLE = (4, 9, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

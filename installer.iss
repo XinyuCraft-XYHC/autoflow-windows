@@ -5,7 +5,7 @@
 
 ; ── 版本号由 build.py 通过 /DAPP_VERSION=x.x.x 参数传入 ──
 #ifndef APP_VERSION
-  #define APP_VERSION "4.8.0"
+  #define APP_VERSION "4.9.0"
 #endif
 
 #define APP_NAME        "AutoFlow"
@@ -62,15 +62,27 @@ VersionInfoProductVersion={#APP_VERSION}
 LicenseFile=LICENSE
 
 [Languages]
+; 简体中文优先，英文备用
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
+; ── 简体中文 ──
+chinesesimplified.CreateDesktopIcon=创建桌面快捷方式(&D)
+chinesesimplified.LaunchAtStartup=开机时自动启动 AutoFlow(&S)
+chinesesimplified.AdditionalTasks=附加任务：
+chinesesimplified.LaunchAfterInstall=安装完成后立即启动 {#APP_NAME}
+
+; ── English ──
 english.CreateDesktopIcon=Create &desktop shortcut
 english.LaunchAtStartup=Launch AutoFlow at Windows &startup
 english.AdditionalTasks=Additional tasks:
+english.LaunchAfterInstall=Launch {#APP_NAME} after installation
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalTasks}"; Flags: unchecked
+; 桌面快捷方式：默认勾选
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalTasks}"
+; 开机自启：默认不勾选
 Name: "startupicon"; Description: "{cm:LaunchAtStartup}"; GroupDescription: "{cm:AdditionalTasks}"; Flags: unchecked
 
 [Files]
@@ -80,32 +92,32 @@ Source: "dist\{#APP_DIR_NAME}\*"; DestDir: "{app}"; Flags: ignoreversion recurse
 [Icons]
 ; 开始菜单快捷方式
 Name: "{group}\{#APP_NAME}"; Filename: "{app}\{#APP_EXE_NAME}"; WorkingDir: "{app}"
-Name: "{group}\Uninstall {#APP_NAME}"; Filename: "{uninstallexe}"
+Name: "{group}\卸载 {#APP_NAME}"; Filename: "{uninstallexe}"
 
-; 桌面快捷方式（可选）
+; 桌面快捷方式（默认勾选）
 Name: "{autodesktop}\{#APP_NAME}"; Filename: "{app}\{#APP_EXE_NAME}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; 安装完成后可选立即运行
-Filename: "{app}\{#APP_EXE_NAME}"; Description: "Launch {#APP_NAME} now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#APP_EXE_NAME}"; Description: "{cm:LaunchAfterInstall}"; Flags: nowait postinstall skipifsilent
 
 [Registry]
 ; 开机自启（可选任务）
 Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "AutoFlow"; ValueData: """{app}\{#APP_EXE_NAME}"" --minimized"; Tasks: startupicon; Flags: uninsdeletevalue
 
 [UninstallDelete]
-; 卸载时清理插件目录（用户安装的插件，可选）
+; 卸载时可选清理用户数据（注释掉默认不清理，保护用户项目文件）
 ; Type: filesandordirs; Name: "{app}\plugins"
 
 [Code]
-// Check if AutoFlow is running before install
+// 安装前检测是否有旧版本在运行，提示关闭
 function InitializeSetup(): Boolean;
 begin
   if FindWindowByClassName('AutoFlowMainWindow') <> 0 then
   begin
-    if MsgBox('AutoFlow appears to be running.' + #13#10 +
-              'Please close AutoFlow before installing, then click Yes to continue.' + #13#10 +
-              'Click No to cancel installation.',
+    if MsgBox('检测到 AutoFlow 正在运行。' + #13#10 +
+              '请先关闭 AutoFlow，然后点击「是」继续安装。' + #13#10 +
+              '点击「否」取消安装。',
               mbConfirmation, MB_YESNO) = IDNO then
     begin
       Result := False;

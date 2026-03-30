@@ -200,6 +200,13 @@ class PluginManagerPage(QWidget):
         self._search_edit.textChanged.connect(self._on_search)
         tb_layout.addWidget(self._search_edit)
 
+        # 插件市场按钮
+        self._market_btn = QPushButton("🛒 " + tr("plugin.market_btn", "插件市场"))
+        self._market_btn.setObjectName("btn_primary")
+        self._market_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._market_btn.clicked.connect(self._open_market)
+        tb_layout.addWidget(self._market_btn)
+
         # 安装插件按钮（从文件夹）
         self._install_btn = QPushButton("📦 " + tr("plugin.install_btn"))
         self._install_btn.setObjectName("btn_primary")
@@ -408,6 +415,14 @@ class PluginManagerPage(QWidget):
                 self._pm._load_plugin(meta)
         self._refresh_list(self._search_edit.text())
 
+    def _open_market(self):
+        """打开插件市场对话框"""
+        from .plugin_market import PluginMarketDialog
+        dlg = PluginMarketDialog(self)
+        dlg.exec()
+        # 市场关闭后刷新插件列表
+        self._on_reload()
+
     def _install_from_folder(self):
         """从文件夹安装插件"""
         folder = QFileDialog.getExistingDirectory(
@@ -462,6 +477,8 @@ class PluginManagerPage(QWidget):
             self._title_lbl.setText(tr("plugin.title"))
         if hasattr(self, '_search_edit'):
             self._search_edit.setPlaceholderText(tr("plugin.search_ph"))
+        if hasattr(self, '_market_btn'):
+            self._market_btn.setText("🛒 " + tr("plugin.market_btn", "插件市场"))
         if hasattr(self, '_install_btn'):
             self._install_btn.setText("📦 " + tr("plugin.install_btn"))
         if hasattr(self, '_open_dir_btn'):

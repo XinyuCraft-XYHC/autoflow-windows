@@ -261,6 +261,22 @@ class SettingsPage(QWidget):
         self._lang_hint.setWordWrap(True)
         gf_lang.addRow(tr("settings.lang_label"), self._lang_combo)
         gf_lang.addRow("", self._lang_hint)
+
+        # ── 语言包市场入口 ──
+        lang_market_row = QHBoxLayout()
+        self._lang_market_btn = QPushButton("🌐 " + tr("settings.lang_market_btn", "语言包市场"))
+        self._lang_market_btn.setObjectName("btn_flat")
+        self._lang_market_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lang_market_btn.clicked.connect(self._open_language_market)
+        lang_market_row.addWidget(self._lang_market_btn)
+        lang_market_row.addStretch()
+        self._lang_market_hint = QLabel(
+            tr("settings.lang_market_hint",
+               "从社区下载更多语言包（日语、韩语、法语等）"))
+        self._lang_market_hint.setObjectName("hint")
+        lang_market_row.addWidget(self._lang_market_hint)
+        gf_lang.addRow("", lang_market_row)
+
         layout.addWidget(self._grp_lang)
 
         self._grp_theme = QGroupBox(tr("settings.grp.theme"))
@@ -1211,6 +1227,28 @@ class SettingsPage(QWidget):
         self._apply_autostart(c.auto_start_enabled)
         self.config_changed.emit(c)
         QMessageBox.information(self, _tr("settings.saved"), _tr("settings.saved_msg"))
+
+    def _open_language_market(self):
+        from .language_market import LanguageMarketPage
+        dlg = LanguageMarketPage(self)
+        dlg.exec()
+        # 市场关闭后刷新语言列表（用户可能新安装了语言包）
+        from ..i18n import get_available_languages, load_language_dir as _lld
+        import os as _os
+        _lang_dir = _os.path.join(
+            _os.environ.get("LOCALAPPDATA", _os.path.expanduser("~")),
+            "XinyuCraft", "AutoFlow", "Language"
+        )
+        _lld(_lang_dir)
+        current_data = self._lang_combo.currentData()
+        self._lang_combo.blockSignals(True)
+        self._lang_combo.clear()
+        for code, name in get_available_languages():
+            self._lang_combo.addItem(name, code)
+        idx = self._lang_combo.findData(current_data)
+        if idx >= 0:
+            self._lang_combo.setCurrentIndex(idx)
+        self._lang_combo.blockSignals(False)
 
     def _apply_autostart(self, enable: bool):
         import sys

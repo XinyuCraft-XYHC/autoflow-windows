@@ -29,6 +29,38 @@ PLUGIN_REPO_URL      = f"{GITHUB_REPO_URL}/tree/master/plugins"
 ISSUES_URL           = f"{GITHUB_REPO_URL}/issues"
 WIKI_URL             = f"{GITHUB_REPO_URL}/wiki"
 
+# ─── 社区语言包市场 ───
+LANG_MARKET_OWNER    = "XinyuCraft-XYHC"
+LANG_MARKET_REPO     = "autoflow-languages"
+LANG_MARKET_URL      = f"https://github.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
+# index.json 直链（GitHub raw）
+LANG_MARKET_INDEX    = (
+    f"https://raw.githubusercontent.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
+    "/main/index.json"
+)
+LANG_MARKET_INDEX_GITEE = (
+    f"https://gitee.com/{LANG_MARKET_OWNER}/{LANG_MARKET_REPO}"
+    "/raw/main/index.json"
+)
+
+# ─── 社区插件市场 ───
+PLUGIN_MARKET_OWNER  = "XinyuCraft-XYHC"
+PLUGIN_MARKET_REPO   = "autoflow-plugins"
+PLUGIN_MARKET_URL    = f"https://github.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
+PLUGIN_MARKET_INDEX  = (
+    f"https://raw.githubusercontent.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
+    "/main/index.json"
+)
+PLUGIN_MARKET_INDEX_GITEE = (
+    f"https://gitee.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
+    "/raw/main/index.json"
+)
+# 发布插件的 Issue 模板（引导用户提交 PR）
+PLUGIN_SUBMIT_URL    = (
+    f"https://github.com/{PLUGIN_MARKET_OWNER}/{PLUGIN_MARKET_REPO}"
+    "/issues/new?template=submit_plugin.md"
+)
+
 
 def _parse_version(ver_str: str) -> tuple:
     """将版本字符串（如 v4.3.1 / 4.3.1）解析为可比较的整数元组"""
@@ -200,6 +232,155 @@ def fetch_announcements(callback: Callable[[list], None],
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
+
+
+def fetch_language_market(callback: Callable[[list, Optional[str]], None],
+                          timeout: int = 8) -> None:
+    """
+    异步拉取语言包市场索引，完成后回调 callback(items, error_msg)。
+    items 为语言包列表（失败时为 []），error_msg 为错误信息或 None。
+    """
+    def _worker():
+        data = _fetch_url_json(LANG_MARKET_INDEX, timeout)
+        if data is None:
+            data = _fetch_url_json(LANG_MARKET_INDEX_GITEE, timeout)
+        if data is None:
+            callback([], "无法连接到语言包市场，请检查网络连接")
+        else:
+            callback(data if isinstance(data, list) else [], None)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def fetch_plugin_market(callback: Callable[[list, Optional[str]], None],
+                        timeout: int = 8) -> None:
+    """
+    异步拉取插件市场索引，完成后回调 callback(items, error_msg)。
+    items 为插件列表（失败时为 []），error_msg 为错误信息或 None。
+    """
+    def _worker():
+        data = _fetch_url_json(PLUGIN_MARKET_INDEX, timeout)
+        if data is None:
+            data = _fetch_url_json(PLUGIN_MARKET_INDEX_GITEE, timeout)
+        if data is None:
+            callback([], "无法连接到插件市场，请检查网络连接")
+        else:
+            callback(data if isinstance(data, list) else [], None)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def download_plugin(download_url: str, plugin_dir_in_zip: str,
+                    dest_plugins_dir: str,
+                    on_progress: Optional[Callable[[int, int], None]] = None,
+                    on_done: Optional[Callable[[str], None]] = None,
+                    on_error: Optional[Callable[[str], None]] = None) -> None:
+    """
+    异步下载插件 zip 包，解压指定子目录到 dest_plugins_dir/<plugin_id>/。
+
+    plugin_dir_in_zip: zip 内插件目录路径，如 "autoflow-plugins-main/plugins/http_request"
+    dest_plugins_dir:  AutoFlow 插件目录（如 %LOCALAPPDATA%/XinyuCraft/AutoFlow/plugins）
+    """
+    import zipfile
+
+    def _worker():
+        try:
+            # 下载 zip
+            import tempfile
+            req = urllib.request.Request(
+                download_url, headers={"User-Agent": "AutoFlow-PluginMarket/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunk_size = 65536
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total)
+                tmp.flush()
+                tmp_path = tmp.name
+                tmp.close()
+
+            # 解压指定子目录
+            plugin_name = os.path.basename(plugin_dir_in_zip.rstrip("/"))
+            dest_path = os.path.join(dest_plugins_dir, plugin_name)
+
+            with zipfile.ZipFile(tmp_path, "r") as zf:
+                prefix = plugin_dir_in_zip.rstrip("/") + "/"
+                members = [m for m in zf.namelist() if m.startswith(prefix)]
+                if not members:
+                    raise ValueError(f"zip 内找不到目录: {plugin_dir_in_zip}")
+
+                # 如果目标已存在，先删除
+                if os.path.exists(dest_path):
+                    shutil.rmtree(dest_path)
+                os.makedirs(dest_path, exist_ok=True)
+
+                for member in members:
+                    # 计算相对路径
+                    rel = member[len(prefix):]
+                    if not rel:
+                        continue
+                    target = os.path.join(dest_path, rel.replace("/", os.sep))
+                    if member.endswith("/"):
+                        os.makedirs(target, exist_ok=True)
+                    else:
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        with zf.open(member) as src, open(target, "wb") as dst:
+                            dst.write(src.read())
+
+            os.unlink(tmp_path)
+            if on_done:
+                on_done(dest_path)
+
+        except Exception as e:
+            if on_error:
+                on_error(str(e))
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def download_language(download_url: str, lang_code: str,
+                      dest_lang_dir: str,
+                      on_progress: Optional[Callable[[int, int], None]] = None,
+                      on_done: Optional[Callable[[str], None]] = None,
+                      on_error: Optional[Callable[[str], None]] = None) -> None:
+    """
+    异步下载单个语言包 JSON 文件到 dest_lang_dir/<lang_code>.json。
+    """
+    def _worker():
+        try:
+            os.makedirs(dest_lang_dir, exist_ok=True)
+            dest_path = os.path.join(dest_lang_dir, f"{lang_code}.json")
+            req = urllib.request.Request(
+                download_url, headers={"User-Agent": "AutoFlow-LangMarket/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                chunk_size = 16384
+                with open(dest_path, "wb") as f:
+                    while True:
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if on_progress:
+                            on_progress(downloaded, total)
+            if on_done:
+                on_done(dest_path)
+        except Exception as e:
+            if on_error:
+                on_error(str(e))
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def download_update(url: str, dest_dir: str,
