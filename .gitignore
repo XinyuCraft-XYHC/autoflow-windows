@@ -11,8 +11,9 @@ build/
 
 # PyInstaller build artifacts
 build/
-# dist/ 保留（发布时可能需要），但忽略大文件
+# dist/ 保留（发布时可能需要），但忽略大文件和 onedir 文件夹
 dist/*.exe
+dist/AutoFlow_v*/     # onedir 文件夹（体积大，不提交到 Git）
 
 # IDE
 .vscode/
