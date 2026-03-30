@@ -20,6 +20,8 @@ GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases
 GITHUB_LATEST_API   = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 GITEE_REPO_URL      = f"https://gitee.com/{GITHUB_OWNER}/{GITHUB_REPO}"
 GITEE_RELEASES_URL  = f"https://gitee.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
+# Gitee releases API（作为 GitHub API 限流时的备用）
+GITEE_LATEST_API    = f"https://gitee.com/api/v5/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 
 # 插件相关链接
 PLUGIN_DEV_DOCS_URL  = f"{GITHUB_REPO_URL}/blob/master/docs/plugin-dev-guide.md"
@@ -37,10 +39,11 @@ def _parse_version(ver_str: str) -> tuple:
 
 def _fetch_latest_release(timeout: int = 8) -> Optional[dict]:
     """
-    从 GitHub API 获取最新 Release 信息。
+    从 GitHub API 获取最新 Release 信息，失败时 fallback 到 Gitee API。
     返回字典含：tag_name, name, body, published_at, assets, html_url
-    若请求失败返回 None。
+    若所有请求均失败返回 None。
     """
+    # 优先 GitHub API
     try:
         req = urllib.request.Request(
             GITHUB_LATEST_API,
@@ -51,9 +54,31 @@ def _fetch_latest_release(timeout: int = 8) -> Optional[dict]:
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        return data
+        # GitHub API 限流时返回 message 字段而非 tag_name
+        if "tag_name" in data:
+            return data
     except Exception:
-        return None
+        pass
+
+    # Fallback：Gitee API
+    try:
+        req = urllib.request.Request(
+            GITEE_LATEST_API,
+            headers={"User-Agent": "AutoFlow-Updater/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        # Gitee release 格式与 GitHub 基本一致，tag_name/name/body/html_url 字段均有
+        if "tag_name" in data:
+            # Gitee 的 assets 格式略有不同，assets[].browser_download_url 可能没有
+            # 把 html_url 指向 Gitee releases 页面
+            if not data.get("html_url"):
+                data["html_url"] = GITEE_RELEASES_URL
+            return data
+    except Exception:
+        pass
+
+    return None
 
 
 def check_update(current_version: str, callback: Callable[[dict], None],
@@ -120,17 +145,37 @@ def check_update(current_version: str, callback: Callable[[dict], None],
 
 # ─── 远程公告 ───
 
-# 公告数据源：GitHub raw 文件（主分支）
+# 公告数据源：优先 GitHub raw，失败时 fallback 到 Gitee raw
 ANNOUNCEMENTS_URL = (
     f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}"
     "/master/docs/announcements.json"
 )
+ANNOUNCEMENTS_URL_GITEE = (
+    f"https://gitee.com/{GITHUB_OWNER}/{GITHUB_REPO}"
+    "/raw/master/docs/announcements.json"
+)
+
+
+def _fetch_url_json(url: str, timeout: int) -> list | None:
+    """尝试从 url 拉取 JSON 列表，失败返回 None"""
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "AutoFlow-Updater/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+        data = json.loads(raw)
+        return data if isinstance(data, list) else None
+    except Exception:
+        return None
 
 
 def fetch_announcements(callback: Callable[[list], None],
                         timeout: int = 8) -> None:
     """
     异步拉取远程公告列表，完成后回调。
+    优先访问 GitHub raw，失败时自动 fallback 到 Gitee raw。
 
     每条公告格式：
     {
@@ -143,22 +188,15 @@ def fetch_announcements(callback: Callable[[list], None],
         "pinned":  bool,  # true = 永远显示，false = 已读后不再弹出
     }
 
-    callback 接收一个公告列表（解析失败时为空列表）。
+    callback 接收一个公告列表（所有源均失败时为空列表）。
     """
     def _worker():
-        try:
-            req = urllib.request.Request(
-                ANNOUNCEMENTS_URL,
-                headers={"User-Agent": "AutoFlow-Updater/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read().decode("utf-8")
-            announcements = json.loads(raw)
-            if not isinstance(announcements, list):
-                announcements = []
-        except Exception:
-            announcements = []
-        callback(announcements)
+        # 优先 GitHub
+        announcements = _fetch_url_json(ANNOUNCEMENTS_URL, timeout)
+        # 失败时 fallback 到 Gitee
+        if announcements is None:
+            announcements = _fetch_url_json(ANNOUNCEMENTS_URL_GITEE, timeout)
+        callback(announcements or [])
 
     t = threading.Thread(target=_worker, daemon=True)
     t.start()

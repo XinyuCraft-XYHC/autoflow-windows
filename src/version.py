@@ -416,8 +416,22 @@
 #   - docs/announcements.json：运营公告数据源，推送到 GitHub master 分支后即时生效，
 #     无需重新发布版本，支持远程运营/紧急通知/更新提示等场景
 
-VERSION       = "4.5.0"
-VERSION_TUPLE = (4, 5, 0)
+# v4.5.1   2026-03-30
+#   【Bug 修复：检查更新卡住 + 公告不显示】
+#   - 根本原因：子线程中直接调用 QTimer.singleShot() 在 PyQt6 中不安全，
+#     会导致回调永远无法进入主线程事件队列，UI 卡在"正在检查更新"
+#   - 修复方案：改为 pyqtSignal 信号跨线程通信（Qt 信号是线程安全的）
+#       · MainWindow 新增 _update_result_sig / _announcements_result_sig 两个信号
+#       · SettingsPage 新增 _update_result_sig 信号
+#       · 子线程回调统一改为 self._xxx_sig.emit(result)
+#   - 公告不显示：国内访问 raw.githubusercontent.com 不稳定
+#     updater.py 为公告和 Release 检测均加入 Gitee 备用源（fallback 机制）：
+#       · 公告：GitHub raw → 失败时 fallback Gitee raw
+#       · 检测更新：GitHub API → 失败/限流时 fallback Gitee API
+#     Gitee raw 和 API 均测试可用，国内用户不再受 GitHub 网络影响
+
+VERSION       = "4.5.1"
+VERSION_TUPLE = (4, 5, 1)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

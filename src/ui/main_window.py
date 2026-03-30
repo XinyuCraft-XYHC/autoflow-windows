@@ -108,6 +108,10 @@ class HistoryEntry:
 
 
 class MainWindow(QMainWindow):
+    # 跨线程信号：子线程完成后安全回到主线程
+    _update_result_sig       = pyqtSignal(dict)   # 更新检测结果
+    _announcements_result_sig = pyqtSignal(list)  # 远程公告结果
+
     def __init__(self, project_path: Optional[str] = None,
                  start_minimized: bool = False):
         super().__init__()
@@ -196,6 +200,10 @@ class MainWindow(QMainWindow):
 
         # ── 初始化插件系统 ──
         QTimer.singleShot(300, self._init_plugin_manager)
+
+        # ── 跨线程信号连接（子线程→主线程安全回调）──
+        self._update_result_sig.connect(self._show_update_tip)
+        self._announcements_result_sig.connect(self._show_announcements)
 
         # ── 启动后静默检测更新（延迟 5 秒，不阻塞启动）──
         QTimer.singleShot(5000, self._silent_check_update)
@@ -1646,7 +1654,7 @@ class MainWindow(QMainWindow):
         from ..version import VERSION
 
         def _on_result(result: dict):
-            QTimer.singleShot(0, lambda: self._show_update_tip(result))
+            self._update_result_sig.emit(result)  # 信号跨线程安全
 
         check_update(VERSION, callback=_on_result, timeout=6)
 
@@ -1677,7 +1685,7 @@ class MainWindow(QMainWindow):
         from ..updater import fetch_announcements
 
         def _on_result(announcements: list):
-            QTimer.singleShot(0, lambda: self._show_announcements(announcements))
+            self._announcements_result_sig.emit(announcements)  # 信号跨线程安全
 
         fetch_announcements(_on_result, timeout=8)
 

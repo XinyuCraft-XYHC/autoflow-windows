@@ -26,6 +26,8 @@ class SettingsPage(QWidget):
     _bu_install_fail_sig  = pyqtSignal(str)
     _cr_install_done_sig  = pyqtSignal()
     _cr_install_fail_sig  = pyqtSignal(str)
+    # 跨线程信号：检查更新结果（子线程→主线程）
+    _update_result_sig    = pyqtSignal(dict)
 
     def __init__(self, config: AppConfig, tasks: List[Task], parent=None):
         super().__init__(parent)
@@ -1044,16 +1046,22 @@ class SettingsPage(QWidget):
         return scroll
 
     def _do_check_update(self, current_version: str) -> None:
-        """触发后台版本检测，结果通过信号回到主线程"""
+        """触发后台版本检测，结果通过信号安全回到主线程"""
         from ..updater import check_update
         self._update_status_lbl.setText("⏳ 正在检查更新...")
         self._update_status_lbl.setStyleSheet("font-size: 12px; color: #CDD6F4;")
         self._update_open_btn.setVisible(False)
 
+        # 确保信号只连接一次（多次点击时先断开旧连接）
+        try:
+            self._update_result_sig.disconnect()
+        except Exception:
+            pass
+        self._update_result_sig.connect(self._apply_update_result)
+
+        # 子线程回调：直接 emit 信号（Qt 信号跨线程是安全的）
         def _on_result(result: dict):
-            # 通过 QTimer.singleShot 回到主线程更新 UI
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(0, lambda: self._apply_update_result(result))
+            self._update_result_sig.emit(result)
 
         check_update(current_version, callback=_on_result)
 
