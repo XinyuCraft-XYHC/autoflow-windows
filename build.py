@@ -16,6 +16,8 @@ with open(os.path.join(ROOT, "src", "version.py"), encoding="utf-8") as _f:
     exec(_f.read(), _ver_ns)
 VERSION     = _ver_ns["VERSION"]
 DIR_NAME    = f"AutoFlow_v{VERSION}"
+# ✅ exe 名固定为 AutoFlow.exe（不带版本号），保持路径稳定
+EXE_NAME    = "AutoFlow.exe"
 SETUP_NAME  = f"AutoFlow_v{VERSION}_Setup.exe"
 ISCC_PATH   = r"C:\InnoSetup6\ISCC.exe"
 
@@ -34,7 +36,7 @@ if result.returncode != 0:
     sys.exit(1)
 
 dir_path = os.path.join(ROOT, "dist", DIR_NAME)
-exe_path = os.path.join(dir_path, f"AutoFlow_v{VERSION}.exe")
+exe_path = os.path.join(dir_path, EXE_NAME)
 if not os.path.exists(exe_path):
     print(f"\n[ERR] 找不到打包产物: {exe_path}")
     sys.exit(1)

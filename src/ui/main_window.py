@@ -1332,10 +1332,12 @@ class MainWindow(QMainWindow):
 
     def _create_desktop_shortcut(self, task):
         """
-        为指定任务在桌面创建 .lnk 快捷方式。
-        快捷方式双击后直接调用 AutoFlow --run-task <task_id>，无需打开主界面。
+        为指定任务创建 .lnk 快捷方式。
+        - 弹出「另存为」对话框让用户选择保存位置（默认桌面）
+        - 创建成功后弹窗展示任务 ID 和命令行调用方式
         """
         import unicodedata
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QApplication
 
         # ── 确定 AutoFlow 可执行路径 ──
         if getattr(sys, "frozen", False):
@@ -1353,68 +1355,166 @@ class MainWindow(QMainWindow):
         else:
             arguments = f'"{_main_py}" --run-task {task.id}'
 
-        # ── 桌面路径 ──
-        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-        if not os.path.isdir(desktop):
-            # 兼容中文 Windows "桌面" 路径
-            import ctypes
-            CSIDL_DESKTOPDIRECTORY = 0x0010
-            buf = ctypes.create_unicode_buffer(260)
-            ctypes.windll.shell32.SHGetFolderPathW(0, CSIDL_DESKTOPDIRECTORY, 0, 0, buf)
-            desktop = buf.value
-
         # ── 净化任务名为合法文件名 ──
         safe_name = "".join(
             c for c in task.name
             if unicodedata.category(c) not in ("Cc", "Cf")
             and c not in r'\/:*?"<>|'
         ).strip() or task.id
-        lnk_path = os.path.join(desktop, f"{safe_name}.lnk")
+
+        # ── 确定默认桌面路径 ──
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        if not os.path.isdir(desktop):
+            try:
+                import ctypes
+                CSIDL_DESKTOPDIRECTORY = 0x0010
+                buf = ctypes.create_unicode_buffer(260)
+                ctypes.windll.shell32.SHGetFolderPathW(0, CSIDL_DESKTOPDIRECTORY, 0, 0, buf)
+                desktop = buf.value
+            except Exception:
+                desktop = os.path.expanduser("~")
+
+        # ── 弹出「另存为」对话框让用户选择位置 ──
+        default_path = os.path.join(desktop, f"{safe_name}.lnk")
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存快捷方式",
+            default_path,
+            "快捷方式 (*.lnk)"
+        )
+        if not save_path:
+            return  # 用户取消
+
+        if not save_path.endswith(".lnk"):
+            save_path += ".lnk"
 
         # ── 用 pywin32 创建 .lnk ──
         try:
             import win32com.client
-            shell   = win32com.client.Dispatch("WScript.Shell")
-            shortcut = shell.CreateShortcut(lnk_path)
-            shortcut.TargetPath   = exe_path
-            shortcut.Arguments    = arguments
-            shortcut.WorkingDirectory = os.path.dirname(exe_path)
-            shortcut.Description  = f"AutoFlow 任务: {task.name}"
+            shell     = win32com.client.Dispatch("WScript.Shell")
+            shortcut  = shell.CreateShortcut(save_path)
+            shortcut.TargetPath        = exe_path
+            shortcut.Arguments         = arguments
+            shortcut.WorkingDirectory  = os.path.dirname(exe_path)
+            shortcut.Description       = f"AutoFlow 任务: {task.name}"
 
-            # 图标：优先使用 autoflow.ico
-            _base_dir  = os.path.dirname(os.path.abspath(__file__))
-            _ico_path  = os.path.normpath(
-                os.path.join(_base_dir, "..", "..", "assets", "autoflow.ico"))
-            if os.path.exists(_ico_path):
-                shortcut.IconLocation = _ico_path + ",0"
+            # 图标：打包时用 exe 自带图标，开发时用 assets/autoflow.ico
+            if getattr(sys, "frozen", False):
+                shortcut.IconLocation = exe_path + ",0"
+            else:
+                _base_dir  = os.path.dirname(os.path.abspath(__file__))
+                _ico_path  = os.path.normpath(
+                    os.path.join(_base_dir, "..", "..", "assets", "autoflow.ico"))
+                if os.path.exists(_ico_path):
+                    shortcut.IconLocation = _ico_path + ",0"
 
             shortcut.save()
 
-            from PyQt6.QtWidgets import QMessageBox
-            msg = QMessageBox(self)
-            msg.setWindowTitle("桌面快捷方式已创建")
-            msg.setText(
-                f"已在桌面创建快捷方式：\n\n"
-                f"📌 {safe_name}.lnk\n\n"
-                f"双击该快捷方式可直接运行任务「{task.name}」，无需打开 AutoFlow 主界面。\n\n"
-                f"提示：命令行也可使用以下命令运行此任务：\n"
-                f"  AutoFlow.exe --run-task {task.id}"
+            # ── 成功弹窗：展示任务 ID + 命令行命令 ──
+            dlg = QDialog(self)
+            dlg.setWindowTitle("快捷方式已创建")
+            dlg.setMinimumWidth(480)
+            lay = QVBoxLayout(dlg)
+            lay.setSpacing(12)
+            lay.setContentsMargins(20, 16, 20, 16)
+
+            ok_lbl = QLabel(
+                f"✅ 快捷方式已创建：\n{save_path}\n\n"
+                f"双击该快捷方式可直接运行任务「{task.name}」，无需打开 AutoFlow 主界面。"
             )
-            msg.setIcon(QMessageBox.Icon.Information)
-            msg.exec()
+            ok_lbl.setWordWrap(True)
+            lay.addWidget(ok_lbl)
+
+            # 分割线
+            from PyQt6.QtWidgets import QFrame
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("color: #45475A;")
+            lay.addWidget(sep)
+
+            # 任务 ID 区域
+            id_title = QLabel("📋 任务 ID（命令行调用用）：")
+            id_title.setStyleSheet("font-weight: bold; color: #CDD6F4;")
+            lay.addWidget(id_title)
+
+            id_row = QHBoxLayout()
+            id_edit = QLineEdit(task.id)
+            id_edit.setReadOnly(True)
+            id_edit.setStyleSheet(
+                "QLineEdit { background:#181825; border:1px solid #45475A; "
+                "border-radius:4px; padding:4px 8px; color:#89B4FA; font-family: monospace; }"
+            )
+            id_row.addWidget(id_edit)
+            copy_id_btn = QPushButton("复制")
+            copy_id_btn.setFixedWidth(52)
+            copy_id_btn.clicked.connect(lambda: (
+                QApplication.clipboard().setText(task.id),
+                copy_id_btn.setText("✓"),
+                QTimer.singleShot(1500, lambda: copy_id_btn.setText("复制"))
+            ))
+            id_row.addWidget(copy_id_btn)
+            lay.addLayout(id_row)
+
+            # 命令行命令区域
+            if getattr(sys, "frozen", False):
+                exe_disp = os.path.basename(exe_path)   # AutoFlow.exe
+                cmd_text = f'{exe_disp} --run-task {task.id}'
+                cmd_full = f'"{exe_path}" --run-task {task.id}'
+            else:
+                cmd_text = f'python main.py --run-task {task.id}'
+                cmd_full = cmd_text
+
+            cmd_title = QLabel("⌨️ 命令行调用方式：")
+            cmd_title.setStyleSheet("font-weight: bold; color: #CDD6F4;")
+            lay.addWidget(cmd_title)
+
+            cmd_row = QHBoxLayout()
+            cmd_edit = QLineEdit(cmd_text)
+            cmd_edit.setReadOnly(True)
+            cmd_edit.setStyleSheet(
+                "QLineEdit { background:#181825; border:1px solid #45475A; "
+                "border-radius:4px; padding:4px 8px; color:#A6E3A1; font-family: monospace; }"
+            )
+            cmd_row.addWidget(cmd_edit)
+            copy_cmd_btn = QPushButton("复制")
+            copy_cmd_btn.setFixedWidth(52)
+            copy_cmd_btn.clicked.connect(lambda: (
+                QApplication.clipboard().setText(cmd_full),
+                copy_cmd_btn.setText("✓"),
+                QTimer.singleShot(1500, lambda: copy_cmd_btn.setText("复制"))
+            ))
+            cmd_row.addWidget(copy_cmd_btn)
+            lay.addLayout(cmd_row)
+
+            hint = QLabel(
+                "💡 将 AutoFlow 安装目录加入系统 PATH 后，\n"
+                "可在任意位置的命令行中直接使用 <code>AutoFlow --run-task &lt;id&gt;</code>"
+            )
+            hint.setTextFormat(Qt.TextFormat.RichText)
+            hint.setStyleSheet("color: #6C7086; font-size: 11px;")
+            lay.addWidget(hint)
+
+            close_btn = QPushButton("关闭")
+            close_btn.setObjectName("btn_primary")
+            close_btn.clicked.connect(dlg.accept)
+            btn_row = QHBoxLayout()
+            btn_row.addStretch()
+            btn_row.addWidget(close_btn)
+            lay.addLayout(btn_row)
+
+            dlg.exec()
 
         except ImportError:
             # pywin32 未安装时回退提示
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(
                 self, "缺少依赖",
                 "创建快捷方式需要 pywin32 库。\n"
                 "请在命令行执行：pip install pywin32\n\n"
-                "或使用以下命令行参数手动运行任务：\n"
+                f"任务 ID：{task.id}\n"
+                "命令行调用方式：\n"
                 f"  AutoFlow.exe --run-task {task.id}"
             )
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "创建失败", f"创建桌面快捷方式时出错：\n{e}")
 
     def _rename_task(self, task: Task):
@@ -1993,7 +2093,7 @@ class MainWindow(QMainWindow):
         check_update(VERSION, callback=_on_result, timeout=6)
 
     def _show_update_tip(self, result: dict):
-        """有新版本时弹出更新对话框"""
+        """有新版本时弹出更新对话框，并在状态栏显示点击按钮"""
         if not result.get("has_update"):
             return
 
@@ -2007,7 +2107,9 @@ class MainWindow(QMainWindow):
                 with open(cfg_path, "r", encoding="utf-8") as _f:
                     _data = _json.load(_f)
                 if _data.get("ignored_update_version") == tag:
-                    return   # 用户已忽略此版本，只在状态栏显示小提示
+                    # 用户已忽略此版本，只在状态栏显示小提示（点击还是弹窗）
+                    self._show_update_status_bar(result, tag)
+                    return
         except Exception:
             pass
 
@@ -2016,19 +2118,34 @@ class MainWindow(QMainWindow):
         dlg = UpdateDialog(result, VERSION, parent=self)
         dlg.exec()
 
-        # 无论对话框结果如何，状态栏也显示版本提示（非侵入）
-        url = result.get("html_url", "")
-        if not hasattr(self, "_update_tip_lbl"):
-            _qlbl = QLabel()
-            _qlbl.setOpenExternalLinks(True)
-            _qlbl.setTextFormat(Qt.TextFormat.RichText)
-            _qlbl.setStyleSheet("color:#4ade80; font-size:11px; padding:0 8px;")
-            self.statusBar().addPermanentWidget(_qlbl)
-            self._update_tip_lbl = _qlbl
-        self._update_tip_lbl.setText(
-            f'🎉 <a href="{url}" style="color:#4ade80;">发现新版本 {tag}，点此下载</a>'
-        )
-        self._update_tip_lbl.setVisible(True)
+        # 无论对话框结果如何，状态栏也显示版本提示（非侵入，点击打开弹窗）
+        self._show_update_status_bar(result, tag)
+
+    def _show_update_status_bar(self, result: dict, tag: str):
+        """在状态栏显示「发现新版本」按钮，点击打开 UpdateDialog"""
+        if not hasattr(self, "_update_tip_btn"):
+            from PyQt6.QtWidgets import QPushButton as _QPB
+            _btn = _QPB(f"🎉 发现新版本 {tag}，点此查看")
+            _btn.setFlat(True)
+            _btn.setStyleSheet(
+                "QPushButton { color:#4ade80; font-size:11px; padding:0 8px; "
+                "background: transparent; border: none; }"
+                "QPushButton:hover { color:#a6e3a1; text-decoration: underline; }"
+            )
+            self.statusBar().addPermanentWidget(_btn)
+            self._update_tip_btn = _btn
+        self._update_tip_btn.setText(f"🎉 发现新版本 {tag}，点此查看")
+        self._update_tip_btn.setVisible(True)
+        # 断开旧连接，绑定最新 result
+        try:
+            self._update_tip_btn.clicked.disconnect()
+        except Exception:
+            pass
+        def _open_dlg(_r=result):
+            from .update_dialog import UpdateDialog
+            dlg = UpdateDialog(_r, VERSION, parent=self)
+            dlg.exec()
+        self._update_tip_btn.clicked.connect(_open_dlg)
 
     # ─────────────────────── 远程公告 ───────────────────────
 

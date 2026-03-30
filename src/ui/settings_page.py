@@ -1112,7 +1112,6 @@ class SettingsPage(QWidget):
 
     def _apply_update_result(self, result: dict) -> None:
         """在主线程更新版本检测结果 UI"""
-        import webbrowser
         if result.get("error"):
             self._update_status_lbl.setText(f"❌ {result['error']}")
             self._update_status_lbl.setStyleSheet("font-size: 12px; color: #f87171;")
@@ -1121,16 +1120,22 @@ class SettingsPage(QWidget):
 
         if result.get("has_update"):
             tag = result.get("latest_tag", "")
-            self._update_status_lbl.setText(f"🎉 发现新版本 {tag}，点击右侧前往下载")
+            self._update_status_lbl.setText(f"🎉 发现新版本 {tag}，点击右侧查看详情")
             self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
-            url = result.get("download_url") or result.get("html_url", "")
             self._update_open_btn.setVisible(True)
+            self._update_open_btn.setText("📥 查看详情")
             # 断开旧连接再重新连接，防止多次触发
             try:
                 self._update_open_btn.clicked.disconnect()
             except Exception:
                 pass
-            self._update_open_btn.clicked.connect(lambda: webbrowser.open(url))
+            # 点击「查看详情」→ 弹出 UpdateDialog
+            def _open_update_dialog(_result=result):
+                from .update_dialog import UpdateDialog
+                from ..version import VERSION
+                dlg = UpdateDialog(_result, VERSION, parent=self)
+                dlg.exec()
+            self._update_open_btn.clicked.connect(_open_update_dialog)
         else:
             tag = result.get("latest_tag", "")
             self._update_status_lbl.setText(f"✅ 已是最新版本（{tag}）")

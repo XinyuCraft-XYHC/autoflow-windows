@@ -205,8 +205,12 @@ def render(size):
             canvas._set(px, py, 180, 200, 230, clamp(av_edge))
 
     # 5. infinity symbol
+    # 小尺寸图标（无文字）时，无限符号居中偏上；大尺寸有文字时偏上留出文字空间
+    if size < 48:
+        inf_cy = H * 0.50   # 无文字时完全居中
+    else:
+        inf_cy = H * 0.36   # 有文字时偏上
     inf_cx = W / 2
-    inf_cy = H * 0.36
     inf_a  = W * 0.26
 
     pts = lemniscate(inf_cx, inf_cy, inf_a, n=10000)
@@ -235,11 +239,13 @@ def render(size):
     spec_y = inf_cy - inf_a * 0.18
     canvas.fill_circle(spec_x, spec_y, max(2, int(7 * s)), 220, 245, 255, 180)
 
-    # 6. "autoflow" text using pixel font
-    _draw_autoflow(canvas, W // 2, int(H * 0.62), s)
+    # 6. "autoflow" text using pixel font（仅 48px 及以上才渲染文字，小图标不渲染）
+    if size >= 48:
+        _draw_autoflow(canvas, W // 2, int(H * 0.62), s)
 
-    # 7. subtitle "Open Source AI"
-    _draw_subtitle(canvas, W // 2, int(H * 0.795), s)
+    # 7. subtitle "Open Source AI"（仅 96px 及以上才渲染副标题）
+    if size >= 96:
+        _draw_subtitle(canvas, W // 2, int(H * 0.795), s)
 
     # 8. corner shine (top-right)
     sx = int(W * 0.75)

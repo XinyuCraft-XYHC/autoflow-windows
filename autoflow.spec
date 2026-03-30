@@ -12,9 +12,10 @@ _vmod = _types.ModuleType("_ver")
 with open(_os.path.join(SPECPATH, "src", "version.py"), encoding="utf-8") as _f:
     exec(_f.read(), _vmod.__dict__)
 APP_VERSION  = _vmod.VERSION
-EXE_NAME     = f"AutoFlow_v{APP_VERSION}"
-# onedir 模式：输出文件夹名（用于 COLLECT 和 Inno Setup 引用）
-DIR_NAME     = EXE_NAME
+# ✅ exe 名固定为 AutoFlow，不带版本号，方便 PATH 注册 / 快捷方式固定路径
+EXE_NAME     = "AutoFlow"
+# onedir 模式：输出文件夹名（带版本号，方便区分，但 exe 本身固定）
+DIR_NAME     = f"AutoFlow_v{APP_VERSION}"
 
 # ── 手动枚举 src 下所有模块，确保 settings_page 等不被遗漏 ──
 hiddenimports = [

@@ -2,11 +2,11 @@
 任务编辑页面
 包含：任务信息、触发器列表、功能块列表
 """
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTextEdit, QCheckBox, QSplitter, QFrame,
-    QScrollArea, QFormLayout, QSizePolicy
+    QScrollArea, QFormLayout, QSizePolicy, QApplication, QDialog
 )
 
 from ..engine.models import Task
@@ -85,7 +85,42 @@ class TaskEditorPage(QWidget):
 
         root.addLayout(top)
 
-        # ── 描述 ──
+        # ── 任务 ID 信息栏（灰色小字 + 复制按钮 + 命令行说明按钮）──
+        id_bar = QHBoxLayout()
+        id_bar.setSpacing(6)
+        self._id_prefix_lbl = QLabel("ID：")
+        self._id_prefix_lbl.setStyleSheet("font-size: 11px; color: #6C7086;")
+        id_bar.addWidget(self._id_prefix_lbl)
+
+        self._id_lbl = QLabel(self.task.id)
+        self._id_lbl.setStyleSheet(
+            "font-size: 11px; color: #6C7086; font-family: monospace;"
+        )
+        self._id_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        id_bar.addWidget(self._id_lbl)
+
+        self._copy_id_btn = QPushButton("复制")
+        self._copy_id_btn.setFixedSize(44, 20)
+        self._copy_id_btn.setStyleSheet(
+            "QPushButton { font-size:10px; border-radius:3px; padding:1px 6px; "
+            "background:#313244; color:#CDD6F4; border:1px solid #45475A; }"
+            "QPushButton:hover { background:#45475A; }"
+        )
+        self._copy_id_btn.clicked.connect(self._copy_task_id)
+        id_bar.addWidget(self._copy_id_btn)
+
+        self._cmd_hint_btn = QPushButton("⌨ 命令行")
+        self._cmd_hint_btn.setFixedSize(64, 20)
+        self._cmd_hint_btn.setStyleSheet(
+            "QPushButton { font-size:10px; border-radius:3px; padding:1px 6px; "
+            "background:#1e3a5f; color:#89B4FA; border:1px solid #89B4FA; }"
+            "QPushButton:hover { background:#2a4f7a; }"
+        )
+        self._cmd_hint_btn.clicked.connect(self._show_cmd_hint)
+        id_bar.addWidget(self._cmd_hint_btn)
+
+        id_bar.addStretch()
+        root.addLayout(id_bar)
         self._desc_edit = QLineEdit()
         self._desc_edit.setPlaceholderText(tr("task.desc_ph"))
         self._desc_edit.textChanged.connect(self._on_changed)
@@ -140,6 +175,84 @@ class TaskEditorPage(QWidget):
         """功能块侧有选中 → 清除触发器侧选中（互斥）"""
         if self._block_editor._selected_ids:
             self._trigger_editor.clear_selection()
+
+    def _copy_task_id(self):
+        """复制任务 ID 到剪贴板"""
+        QApplication.clipboard().setText(self.task.id)
+        self._copy_id_btn.setText("✓")
+        QTimer.singleShot(1500, lambda: self._copy_id_btn.setText("复制"))
+
+    def _show_cmd_hint(self):
+        """弹窗展示命令行调用方式"""
+        import sys as _sys, os as _os
+        if getattr(_sys, "frozen", False):
+            exe = _sys.argv[0]
+            exe_disp = _os.path.basename(exe)
+            cmd_text = f'"{exe}" --run-task {self.task.id}'
+            cmd_display = f'{exe_disp} --run-task {self.task.id}'
+        else:
+            cmd_text = f'python main.py --run-task {self.task.id}'
+            cmd_display = cmd_text
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("命令行调用")
+        dlg.setMinimumWidth(460)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(10)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        title = QLabel(f"⌨️  命令行运行任务「{self.task.name}」")
+        title.setStyleSheet("font-weight: bold; font-size: 13px;")
+        lay.addWidget(title)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #45475A;")
+        lay.addWidget(sep)
+
+        for label, text, full in [
+            ("任务 ID：", self.task.id, self.task.id),
+            ("命令：", cmd_display, cmd_text),
+        ]:
+            row_lbl = QLabel(label)
+            row_lbl.setStyleSheet("font-size: 11px; color: #6C7086;")
+            lay.addWidget(row_lbl)
+            row = QHBoxLayout()
+            edit = QLineEdit(text)
+            edit.setReadOnly(True)
+            edit.setStyleSheet(
+                "QLineEdit { background:#181825; border:1px solid #45475A; "
+                "border-radius:4px; padding:4px 8px; font-family:monospace; }"
+            )
+            row.addWidget(edit)
+            _full = full  # 闭包捕获
+            _btn  = QPushButton("复制")
+            _btn.setFixedWidth(52)
+            def _copy(_b=_btn, _t=_full):
+                QApplication.clipboard().setText(_t)
+                _b.setText("✓")
+                QTimer.singleShot(1500, lambda: _b.setText("复制"))
+            _btn.clicked.connect(_copy)
+            row.addWidget(_btn)
+            lay.addLayout(row)
+
+        hint = QLabel(
+            "💡 将 AutoFlow 安装目录加入系统 PATH 后，\n"
+            "可在任意位置的命令行中直接使用 <code>AutoFlow --run-task &lt;id&gt;</code>"
+        )
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #6C7086; font-size: 11px;")
+        lay.addWidget(hint)
+
+        close_btn = QPushButton("关闭")
+        close_btn.setObjectName("btn_primary")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        lay.addLayout(btn_row)
+        dlg.exec()
 
     def _retranslate(self):
         """语言切换后刷新所有文字"""
