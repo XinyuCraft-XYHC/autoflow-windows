@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
         self._bg_mode   = "fill"
         self._bg_opacity = 0.15
 
-        self.setWindowTitle(f"{FULL_NAME} — 智能自动化工具")
+        self.setWindowTitle(f"{FULL_NAME} — {tr('main.title')}")
         self.resize(1200, 780)
         self.setMinimumSize(900, 600)
         # 设置窗口类名，供单实例检测（FindWindowW）查找
@@ -389,9 +389,36 @@ class MainWindow(QMainWindow):
     # ─────────────────── 构建 UI ───────────────────
 
     def _build_ui(self):
-        central = QWidget()
+        # 使用自定义 central widget，在其 paintEvent 里绘制背景图
+        main_win_ref = self
+
+        class _BgCentralWidget(QWidget):
+            def paintEvent(self_w, event):
+                from PyQt6.QtGui import QPainter
+                # 先让 Qt 填充默认背景（确保有底色）
+                super().paintEvent(event)
+                pm_src = getattr(main_win_ref, "_bg_pixmap", None)
+                movie  = getattr(main_win_ref, "_bg_movie", None)
+                if movie is not None:
+                    pm_src = movie.currentPixmap()
+                if pm_src is None or pm_src.isNull():
+                    return
+                from .theme_manager import _scale_pixmap, _apply_opacity
+                painter = QPainter(self_w)
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+                size = self_w.size()
+                if size.width() > 0 and size.height() > 0:
+                    mode    = getattr(main_win_ref, "_bg_mode", "fill")
+                    opacity = getattr(main_win_ref, "_bg_opacity", 0.15)
+                    scaled  = _scale_pixmap(pm_src, size, mode)
+                    final   = _apply_opacity(scaled, opacity)
+                    x = (size.width()  - final.width())  // 2
+                    y = (size.height() - final.height()) // 2
+                    painter.drawPixmap(x, y, final)
+                painter.end()
+
+        central = _BgCentralWidget()
         central.setObjectName("main_central_widget")
-        central.setAutoFillBackground(False)  # 让背景透明，由 paintEvent 绘制背景
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
@@ -687,13 +714,18 @@ class MainWindow(QMainWindow):
             if bg_image.lower().endswith(".gif"):
                 movie = QMovie(bg_image)
                 movie.start()
-                movie.frameChanged.connect(lambda _: self.update())
+                # 每帧变化时触发 centralWidget 重绘（而非 MainWindow 自身）
+                cw = self.centralWidget()
+                if cw:
+                    movie.frameChanged.connect(lambda _: cw.update())
                 self._bg_movie = movie
             else:
                 pm = QPixmap(bg_image)
                 if not pm.isNull():
                     self._bg_pixmap = pm
-        self.update()  # 触发 paintEvent 重绘背景
+        cw = self.centralWidget()
+        if cw:
+            cw.update()  # 触发 centralWidget paintEvent 重绘背景
 
         # ── 通知 LogPanel 更新颜色 ──
         if hasattr(self, '_log_panel'):
@@ -877,9 +909,9 @@ class MainWindow(QMainWindow):
         self._modified = False
         self._refresh_task_list()
         self._refresh_tray_menu()
-        self._push_history("新建项目")
-        self.setWindowTitle(f"{FULL_NAME} — 新项目")
-        self._status_label.setText("新项目")
+        self._push_history(tr("main.push_history.new_project"))
+        self.setWindowTitle(f"{FULL_NAME} — {tr('main.new_project')}")
+        self._status_label.setText(tr("main.new_project"))
         self._update_undo_label()
 
     def _new_project_prompt(self):
@@ -920,8 +952,8 @@ class MainWindow(QMainWindow):
         self._modified = False
         self._task_list.clear()
         self._refresh_tray_menu()
-        self.setWindowTitle(f"{FULL_NAME} — 智能自动化工具")
-        self._status_label.setText("已关闭项目")
+        self.setWindowTitle(f"{FULL_NAME} — {tr('main.title')}")
+        self._status_label.setText(tr("main.closed_project"))
         self._update_undo_label()
 
     def _load_project(self, path: str):
@@ -1074,7 +1106,7 @@ class MainWindow(QMainWindow):
 
     def _undo(self):
         if self._history_pos <= 0:
-            self._status_label.setText("没有更多撤回步骤")
+            self._status_label.setText(tr("main.no_more_undo"))
             return
         self._history_pos -= 1
         self._restore_snapshot(self._history[self._history_pos].snapshot)
@@ -1083,7 +1115,7 @@ class MainWindow(QMainWindow):
 
     def _redo(self):
         if self._history_pos >= len(self._history) - 1:
-            self._status_label.setText("没有更多重做步骤")
+            self._status_label.setText(tr("main.no_more_redo"))
             return
         self._history_pos += 1
         self._restore_snapshot(self._history[self._history_pos].snapshot)
@@ -1117,7 +1149,7 @@ class MainWindow(QMainWindow):
         self._refresh_task_list()
         self._refresh_tray_menu()
         self._modified = True
-        self._modified_label.setText("  * 未保存  ")
+        self._modified_label.setText(tr("main.modified"))
 
         # 延迟到下一个事件循环周期：
         # 1. 解除 _restoring 保护（覆盖 deleteLater 残留信号）
@@ -1774,7 +1806,7 @@ class MainWindow(QMainWindow):
 
     def _mark_modified(self):
         self._modified = True
-        self._modified_label.setText("  * 未保存  ")
+        self._modified_label.setText(tr("main.modified"))
 
 
     # ─────────────────── 设置 ───────────────────
@@ -1986,34 +2018,6 @@ class MainWindow(QMainWindow):
             if self._trigger_monitor is not None:
                 tvars = self._trigger_monitor.get_trigger_vars(task_id)
             self._run_task(task_id, trigger_vars=tvars)
-
-    # ─────────────────── 背景图绘制 ───────────────────
-
-    def paintEvent(self, event):
-        """重写 paintEvent：在最底层绘制背景图/GIF，确保不被任何子 widget 遮挡。"""
-        super().paintEvent(event)
-        from PyQt6.QtGui import QPainter
-        from .theme_manager import _scale_pixmap, _apply_opacity
-
-        pm_src = None
-        if self._bg_movie is not None:
-            pm_src = self._bg_movie.currentPixmap()
-        elif self._bg_pixmap is not None:
-            pm_src = self._bg_pixmap
-
-        if pm_src is None or pm_src.isNull():
-            return
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        size = self.size()
-        if size.width() > 0 and size.height() > 0:
-            scaled = _scale_pixmap(pm_src, size, self._bg_mode)
-            final  = _apply_opacity(scaled, self._bg_opacity)
-            x = (size.width()  - final.width())  // 2
-            y = (size.height() - final.height()) // 2
-            painter.drawPixmap(x, y, final)
-        painter.end()
 
     # ─────────────────── 窗口关闭 ───────────────────
 

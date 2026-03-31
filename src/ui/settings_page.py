@@ -76,28 +76,28 @@ class SettingsPage(QWidget):
 
         # 顶部栏
         top_bar = QHBoxLayout()
-        back_btn = QPushButton("<  返回")
-        back_btn.setObjectName("btn_flat")
-        back_btn.setFixedWidth(80)
-        back_btn.clicked.connect(self.back_requested)
-        top_bar.addWidget(back_btn)
+        self._back_btn = QPushButton(tr("btn.back"))
+        self._back_btn.setObjectName("btn_flat")
+        self._back_btn.setFixedWidth(80)
+        self._back_btn.clicked.connect(self.back_requested)
+        top_bar.addWidget(self._back_btn)
 
-        title = QLabel("  设置")
-        title.setObjectName("section_title")
-        title.setStyleSheet("font-size: 20px; font-weight: bold; margin-left: 12px;")
-        top_bar.addWidget(title)
+        self._settings_title_lbl = QLabel("  " + tr("settings.title"))
+        self._settings_title_lbl.setObjectName("section_title")
+        self._settings_title_lbl.setStyleSheet("font-size: 20px; font-weight: bold; margin-left: 12px;")
+        top_bar.addWidget(self._settings_title_lbl)
         top_bar.addStretch()
         root.addLayout(top_bar)
 
         tabs = QTabWidget()
-        tabs.addTab(self._build_general_tab(),  "  通用  ")
-        tabs.addTab(self._build_project_tab(),  "  项目  ")
-        tabs.addTab(self._build_email_tab(),    "  邮箱  ")
-        tabs.addTab(self._build_theme_tab(),    "  外观  ")
-        tabs.addTab(self._build_hotkeys_tab(),  "  按键  ")
+        tabs.addTab(self._build_general_tab(),  "  " + tr("settings.general") + "  ")
+        tabs.addTab(self._build_project_tab(),  "  " + tr("settings.project") + "  ")
+        tabs.addTab(self._build_email_tab(),    "  " + tr("settings.email") + "  ")
+        tabs.addTab(self._build_theme_tab(),    "  " + tr("settings.appearance") + "  ")
+        tabs.addTab(self._build_hotkeys_tab(),  "  " + tr("settings.hotkeys") + "  ")
         tabs.addTab(self._build_ai_tab(),       "  AI  ")
-        tabs.addTab(self._build_advanced_tab(), "  高级  ")
-        tabs.addTab(self._build_about_tab(),    "  关于  ")
+        tabs.addTab(self._build_advanced_tab(), "  " + tr("settings.advanced") + "  ")
+        tabs.addTab(self._build_about_tab(),    "  " + tr("settings.about") + "  ")
         # ── 插件扩展 Tab ──
         try:
             from ..plugin_manager import PluginManager
@@ -1821,6 +1821,11 @@ class SettingsPage(QWidget):
     def retranslate(self):
         """语言切换后刷新设置页内所有静态文字"""
         from ..i18n import tr
+        # 顶部标题 & 返回按钮
+        if hasattr(self, '_settings_title_lbl'):
+            self._settings_title_lbl.setText("  " + tr("settings.title"))
+        if hasattr(self, '_back_btn'):
+            self._back_btn.setText(tr("btn.back"))
         # 保存按钮
         if hasattr(self, '_save_btn'):
             self._save_btn.setText("  " + tr("settings.save"))

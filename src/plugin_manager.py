@@ -300,10 +300,41 @@ class PluginManager:
                 "color":    bdef.get("color", "#607D8B"),
                 "icon":     bdef.get("icon", "🔌"),
             }
+            # 兼容新格式（params dict）和旧格式（fields list）
             if "params" in bdef:
                 BLOCK_PARAMS[btype] = bdef["params"]
+            elif "fields" in bdef:
+                # 将 fields list 转换为 params dict
+                params_dict = {}
+                for f in bdef["fields"]:
+                    fname = f.get("name", "")
+                    if fname:
+                        params_dict[fname] = {
+                            "type":    f.get("type", "string"),
+                            "label":   f.get("label", fname),
+                            "default": f.get("default", ""),
+                        }
+                        if "options" in f:
+                            params_dict[fname]["options"] = f["options"]
+                        if "placeholder" in f:
+                            params_dict[fname]["placeholder"] = f["placeholder"]
+                BLOCK_PARAMS[btype] = params_dict
             if "executor" in bdef:
                 self._plugin_executors[btype] = bdef["executor"]
+            elif not bdef.get("executor") and hasattr(plugin, "execute_block"):
+                # 旧格式插件只有 execute_block(block_type, params, ctx) 方法
+                # 包装成 executor(params_dict, ctx) 函数
+                _bt = btype   # 闭包变量
+                _inst = plugin
+                def _make_executor(bt, inst):
+                    def _executor(params_dict, ctx):
+                        result = inst.execute_block(bt, params_dict, ctx)
+                        # 将返回的 variables 写入 ctx.variables
+                        if isinstance(result, dict) and ctx is not None:
+                            for k, v in result.get("variables", {}).items():
+                                ctx.variables[k] = v
+                    return _executor
+                self._plugin_executors[btype] = _make_executor(_bt, _inst)
             self._plugin_block_types[btype] = BLOCK_TYPES[btype]
             self._plugin_block_params[btype] = BLOCK_PARAMS.get(btype, {})
             logger.debug(f"[{pid}] 注册功能块: {btype}")
