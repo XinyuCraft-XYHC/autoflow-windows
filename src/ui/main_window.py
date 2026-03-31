@@ -21,8 +21,8 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QScrollArea, QFormLayout, QComboBox, QDialogButtonBox,
     QLineEdit, QAbstractItemView
 )
-from PyQt6.QtGui import QDrag
-from PyQt6.QtCore import QMimeData
+
+
 
 from .effects import FadeStackedWidget, fade_in, show_toast, animate_dialog_show
 
@@ -119,8 +119,6 @@ class TaskListWidget(QListWidget):
     task_clicked    = pyqtSignal(str)
     # 分组标题单击（gid）
     group_clicked   = pyqtSignal(str)
-    # 任务拖动重排完成 (dragged_task_id, target_task_id_or_none, insert_after: bool)
-    task_reordered  = pyqtSignal(str, str, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -142,29 +140,10 @@ class TaskListWidget(QListWidget):
             self._dragging = False
             item = self.itemAt(event.pos())
             self._drag_item = item
-        # 不调 super() 的 press（避免 currentRowChanged 触发任务选中）
-        # 但需要允许原生高亮
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if (event.buttons() & Qt.MouseButton.LeftButton
-                and self._drag_start_pos is not None
-                and not self._dragging):
-            dist = (event.pos() - self._drag_start_pos).manhattanLength()
-            if dist > 8 and self._drag_item is not None:
-                task_id = self._drag_item.data(Qt.ItemDataRole.UserRole)
-                # 只允许拖动任务行，不拖分组标题
-                if task_id and isinstance(task_id, str):
-                    self._dragging = True
-                    drag = QDrag(self)
-                    mime = QMimeData()
-                    mime.setData("application/x-tasklist-id",
-                                 task_id.encode())
-                    drag.setMimeData(mime)
-                    drag.exec(Qt.DropAction.MoveAction)
-                    self._dragging = False
-                    self._drag_start_pos = None
-                    return
+        # 拖动排序功能已禁用（防止崩溃）
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -198,38 +177,6 @@ class TaskListWidget(QListWidget):
                 self.task_clicked.emit(task_id)
         self._drag_start_pos = None
         super().mouseReleaseEvent(event)
-
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat("application/x-tasklist-id"):
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat("application/x-tasklist-id"):
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event):
-        if not event.mimeData().hasFormat("application/x-tasklist-id"):
-            event.ignore()
-            return
-        drag_id = event.mimeData().data("application/x-tasklist-id").data().decode()
-        drop_item = self.itemAt(event.pos())
-        if drop_item is None:
-            event.ignore()
-            return
-        target_id = drop_item.data(Qt.ItemDataRole.UserRole)
-        # target 是分组标题则忽略
-        if not target_id or not isinstance(target_id, str):
-            event.ignore()
-            return
-        # 判断插入在 target 前还是后
-        item_rect = self.visualItemRect(drop_item)
-        insert_after = (event.position().toPoint().y() > item_rect.center().y())
-        self.task_reordered.emit(drag_id, target_id, insert_after)
-        event.acceptProposedAction()
 
     # ── 多选逻辑 ──────────────────────────────────────
     def _do_single_select(self, task_id: str):
@@ -340,6 +287,12 @@ class MainWindow(QMainWindow):
         # 分组折叠状态（gid -> True=折叠）
         self._collapsed_groups: set = set()
 
+        # 背景图相关（paintEvent 绘制，不用 QLabel 层叠）
+        self._bg_pixmap = None    # QPixmap 静态图
+        self._bg_movie  = None    # QMovie GIF 动图
+        self._bg_mode   = "fill"
+        self._bg_opacity = 0.15
+
         self.setWindowTitle(f"{FULL_NAME} — 智能自动化工具")
         self.resize(1200, 780)
         self.setMinimumSize(900, 600)
@@ -437,6 +390,8 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         central = QWidget()
+        central.setObjectName("main_central_widget")
+        central.setAutoFillBackground(False)  # 让背景透明，由 paintEvent 绘制背景
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
@@ -518,8 +473,6 @@ class MainWindow(QMainWindow):
         self._task_list.task_clicked.connect(self._on_task_item_clicked)
         # 分组标题单击 → 切换折叠
         self._task_list.group_clicked.connect(self._on_group_item_clicked)
-        # 任务拖动重排
-        self._task_list.task_reordered.connect(self._on_task_reordered)
         layout.addWidget(self._task_list)
 
         self._add_task_btn = QPushButton("+  新建任务  Ctrl+T")
@@ -584,10 +537,55 @@ class MainWindow(QMainWindow):
         return btn
 
     def _apply_theme(self, theme: str = "dark"):
-        """应用主题（支持亚克力毛玻璃效果）"""
-        from .themes import PALETTES as _P
+        """应用主题（支持亚克力毛玻璃效果 + 自定义字体/背景/调色板）"""
+        from .themes import PALETTES as _P, get_stylesheet
         from .block_editor import set_theme_dark
-        # 确定当前调色板
+
+        config = getattr(self, '_project', None)
+        config = config.config if config else None
+
+        # ── 自定义字体注册 ──
+        font_family = ""
+        font_size   = 0
+        if config:
+            # 先看整合包里有没有字体文件
+            pack_path = getattr(config, "theme_pack_path", "")
+            if pack_path:
+                from .theme_manager import get_installed_pack, register_font
+                pack = get_installed_pack(pack_path)
+                if pack and pack.font_file and os.path.exists(pack.font_file):
+                    try:
+                        font_family = register_font(pack.font_file)
+                    except Exception:
+                        pass
+                if pack and not font_family and pack.font_family:
+                    font_family = pack.font_family
+                if pack and pack.font_size:
+                    font_size = pack.font_size
+
+            # 直接配置的字体优先级更高
+            if getattr(config, "theme_font_family", ""):
+                font_family = config.theme_font_family
+            if getattr(config, "theme_font_size", 0):
+                font_size = config.theme_font_size
+
+        # ── 调色板覆盖 ──
+        palette_override = {}
+        if config:
+            # 先从整合包加载
+            pack_path = getattr(config, "theme_pack_path", "")
+            if pack_path:
+                from .theme_manager import get_installed_pack
+                pack = get_installed_pack(pack_path)
+                if pack:
+                    palette_override.update(pack.palette_override)
+                    # 整合包 base_theme 覆盖 theme 参数
+                    if pack.base_theme:
+                        theme = pack.base_theme
+            # 单独配置的颜色覆盖更优先
+            palette_override.update(getattr(config, "theme_palette_override", {}))
+
+        # ── 确定当前调色板 ──
         effective_theme = theme
         if theme == "system":
             try:
@@ -601,14 +599,19 @@ class MainWindow(QMainWindow):
                 effective_theme = "light" if val == 1 else "dark"
             except Exception:
                 effective_theme = "dark"
-        palette = _P.get(effective_theme, _P["dark"])
-        is_dark  = palette["mode"] == "dark"
+        import copy
+        palette = copy.deepcopy(_P.get(effective_theme, _P["dark"]))
+        palette.update(palette_override)
+        is_dark = palette["mode"] == "dark"
 
         # ── 更新全局主题状态（BlockItem / TriggerCard 据此渲染）──
         set_theme_dark(is_dark)
 
         # ── 生成 QSS ──
-        qss = get_stylesheet(effective_theme)
+        qss = get_stylesheet(effective_theme,
+                             font_family=font_family,
+                             font_size=font_size,
+                             palette_override=palette_override)
 
         # ── 侧边栏专属样式（根据主题动态着色） ──
         hover_bg = "rgba(255,255,255,0.07)" if is_dark else "rgba(0,0,0,0.05)"
@@ -640,8 +643,57 @@ class MainWindow(QMainWindow):
 #task_list::item:selected {{
     background: {palette['accent']}22; color: {palette['accent']};
 }}
+/* centralWidget 透明，背景由 MainWindow.paintEvent 绘制 */
+#main_central_widget {{
+    background: transparent;
+}}
 """
         self.setStyleSheet(qss)
+
+        # ── 背景图/GIF（通过 paintEvent 绘制，不用 QLabel 层叠）──
+        if config:
+            # 整合包背景优先
+            pack_bg = ""
+            pack_opacity = getattr(config, "theme_bg_opacity", 0.15)
+            pack_mode    = getattr(config, "theme_bg_mode", "fill")
+            pack_path = getattr(config, "theme_pack_path", "")
+            if pack_path:
+                from .theme_manager import get_installed_pack
+                pack = get_installed_pack(pack_path)
+                if pack and pack.bg_file:
+                    pack_bg      = pack.bg_file
+                    pack_opacity = pack.bg_opacity
+                    pack_mode    = pack.bg_mode
+
+            bg_image = getattr(config, "theme_bg_image", "") or pack_bg
+            bg_opacity = getattr(config, "theme_bg_opacity", pack_opacity) if getattr(config, "theme_bg_image", "") else pack_opacity
+            bg_mode    = getattr(config, "theme_bg_mode", pack_mode) if getattr(config, "theme_bg_image", "") else pack_mode
+        else:
+            bg_image = ""
+            bg_opacity = 0.15
+            bg_mode = "fill"
+
+        # 停止旧 GIF
+        if self._bg_movie is not None:
+            self._bg_movie.stop()
+            self._bg_movie.frameChanged.disconnect()
+            self._bg_movie = None
+        self._bg_pixmap = None
+        self._bg_mode = bg_mode
+        self._bg_opacity = bg_opacity
+
+        if bg_image and os.path.exists(bg_image):
+            from PyQt6.QtGui import QPixmap, QMovie
+            if bg_image.lower().endswith(".gif"):
+                movie = QMovie(bg_image)
+                movie.start()
+                movie.frameChanged.connect(lambda _: self.update())
+                self._bg_movie = movie
+            else:
+                pm = QPixmap(bg_image)
+                if not pm.isNull():
+                    self._bg_pixmap = pm
+        self.update()  # 触发 paintEvent 重绘背景
 
         # ── 通知 LogPanel 更新颜色 ──
         if hasattr(self, '_log_panel'):
@@ -673,8 +725,12 @@ class MainWindow(QMainWindow):
         tray_menu.addSeparator()
         self._tray_run_menu = tray_menu.addMenu("手动运行任务")
         tray_menu.addSeparator()
+        # 插件扩展托盘菜单项（由 _refresh_tray_menu 动态填充）
+        self._tray_plugin_menu_placeholder = tray_menu.addSeparator()
+        self._tray_plugin_actions: list = []
         tray_menu.addAction("退出", self._quit_app)
 
+        self._tray_menu = tray_menu
         self._tray.setContextMenu(tray_menu)
         self._tray.setToolTip("AutoFlow — 智能自动化工具")
         self._tray.activated.connect(self._on_tray_activated)
@@ -690,6 +746,34 @@ class MainWindow(QMainWindow):
                 f"{'>' if task.enabled else 'o'}  {task.name}"
             )
             action.triggered.connect(lambda _, tid=task.id: self._run_task(tid))
+
+        # ── 刷新插件托盘菜单 ──
+        for act in getattr(self, '_tray_plugin_actions', []):
+            try:
+                self._tray_menu.removeAction(act)
+            except Exception:
+                pass
+        self._tray_plugin_actions = []
+        try:
+            from .plugin_manager import PluginManager
+            pm_items = PluginManager.instance().get_tray_menu_items()
+            if pm_items and hasattr(self, '_tray_menu'):
+                # 在占位符分隔符之前插入分隔线和菜单项
+                sep = self._tray_menu.insertSeparator(self._tray_plugin_menu_placeholder)
+                self._tray_plugin_actions.append(sep)
+                for mdef in pm_items:
+                    icon_text  = mdef.get("icon", "🔌")
+                    label_text = mdef.get("label", mdef.get("id", ""))
+                    from PyQt6.QtGui import QAction
+                    act = QAction(f"{icon_text}  {label_text}", self._tray_menu)
+                    cb  = mdef.get("callback")
+                    if callable(cb):
+                        act.triggered.connect(lambda _, fn=cb: fn())
+                    # 插入到占位符之前，保证顺序正确
+                    self._tray_menu.insertAction(self._tray_plugin_menu_placeholder, act)
+                    self._tray_plugin_actions.append(act)
+        except Exception:
+            pass
 
     def _on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
@@ -1199,19 +1283,10 @@ class MainWindow(QMainWindow):
         self._refresh_task_list()
 
     def _on_task_reordered(self, dragged_task_id: str, target_task_id: str, insert_after: bool):
-        """任务拖动重排"""
-        dragged = next((t for t in self._project.tasks if t.id == dragged_task_id), None)
-        target = next((t for t in self._project.tasks if t.id == target_task_id), None)
-        if not dragged or not target:
-            return
-        self._project.tasks.remove(dragged)
-        target_idx = self._project.tasks.index(target)
-        if insert_after:
-            target_idx += 1
-        self._project.tasks.insert(target_idx, dragged)
-        self._refresh_task_list()
-        self._mark_modified()
-        self._push_history(f"重排任务: {dragged.name}")
+        """任务拖动重排（功能已禁用，保留方法以避免信号连接报错）"""
+        pass
+
+
 
     def _quick_add_group(self):
         """快速新建分组（右键菜单）"""
@@ -1911,6 +1986,34 @@ class MainWindow(QMainWindow):
             if self._trigger_monitor is not None:
                 tvars = self._trigger_monitor.get_trigger_vars(task_id)
             self._run_task(task_id, trigger_vars=tvars)
+
+    # ─────────────────── 背景图绘制 ───────────────────
+
+    def paintEvent(self, event):
+        """重写 paintEvent：在最底层绘制背景图/GIF，确保不被任何子 widget 遮挡。"""
+        super().paintEvent(event)
+        from PyQt6.QtGui import QPainter
+        from .theme_manager import _scale_pixmap, _apply_opacity
+
+        pm_src = None
+        if self._bg_movie is not None:
+            pm_src = self._bg_movie.currentPixmap()
+        elif self._bg_pixmap is not None:
+            pm_src = self._bg_pixmap
+
+        if pm_src is None or pm_src.isNull():
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        size = self.size()
+        if size.width() > 0 and size.height() > 0:
+            scaled = _scale_pixmap(pm_src, size, self._bg_mode)
+            final  = _apply_opacity(scaled, self._bg_opacity)
+            x = (size.width()  - final.width())  // 2
+            y = (size.height() - final.height()) // 2
+            painter.drawPixmap(x, y, final)
+        painter.end()
 
     # ─────────────────── 窗口关闭 ───────────────────
 

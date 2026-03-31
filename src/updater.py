@@ -360,6 +360,30 @@ def download_plugin(download_url: str, plugin_dir_in_zip: str,
     threading.Thread(target=_worker, daemon=True).start()
 
 
+def _build_fallback_urls(primary_url: str) -> list:
+    """
+    根据主 URL 推导备用源列表。
+    支持 GitHub raw → jsDelivr CDN → Gitee raw 三级降级。
+    """
+    urls = [primary_url]
+    # GitHub raw → jsDelivr CDN
+    # https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}
+    # → https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}
+    if "raw.githubusercontent.com" in primary_url:
+        try:
+            parts = primary_url.split("raw.githubusercontent.com/", 1)[1].split("/", 3)
+            owner, repo, branch, path = parts[0], parts[1], parts[2], parts[3]
+            cdn_url = f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}"
+            urls.append(cdn_url)
+            # Gitee raw（替换 owner 用 _admin 后缀）
+            gitee_owner = owner + "_admin"
+            gitee_url = f"https://gitee.com/{gitee_owner}/{repo}/raw/{branch}/{path}"
+            urls.append(gitee_url)
+        except Exception:
+            pass
+    return urls
+
+
 def download_language(download_url: str, lang_code: str,
                       dest_lang_dir: str,
                       on_progress: Optional[Callable[[int, int], None]] = None,
@@ -367,29 +391,43 @@ def download_language(download_url: str, lang_code: str,
                       on_error: Optional[Callable[[str], None]] = None) -> None:
     """
     异步下载单个语言包 JSON 文件到 dest_lang_dir/<lang_code>.json。
+    自动尝试 GitHub raw → jsDelivr CDN → Gitee raw 三级备用源。
     """
     def _worker():
         try:
             os.makedirs(dest_lang_dir, exist_ok=True)
             dest_path = os.path.join(dest_lang_dir, f"{lang_code}.json")
-            req = urllib.request.Request(
-                download_url, headers={"User-Agent": "AutoFlow-LangMarket/1.0"}
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                total = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 16384
-                with open(dest_path, "wb") as f:
-                    while True:
-                        chunk = resp.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if on_progress:
-                            on_progress(downloaded, total)
-            if on_done:
-                on_done(dest_path)
+
+            fallback_urls = _build_fallback_urls(download_url)
+            last_error = None
+
+            for url in fallback_urls:
+                try:
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": "AutoFlow-LangMarket/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        total = int(resp.headers.get("Content-Length", 0))
+                        downloaded = 0
+                        chunk_size = 16384
+                        with open(dest_path, "wb") as f:
+                            while True:
+                                chunk = resp.read(chunk_size)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if on_progress:
+                                    on_progress(downloaded, total)
+                    if on_done:
+                        on_done(dest_path)
+                    return
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            if on_error:
+                on_error(str(last_error))
         except Exception as e:
             if on_error:
                 on_error(str(e))

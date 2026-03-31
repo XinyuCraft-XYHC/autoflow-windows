@@ -138,8 +138,18 @@ PALETTES: Dict[str, Dict[str, str]] = {
 }
 
 
-def get_stylesheet(theme: str = "dark") -> str:
-    """根据主题名生成完整 QSS 样式表"""
+def get_stylesheet(theme: str = "dark",
+                   font_family: str = "",
+                   font_size: int = 0,
+                   palette_override: dict | None = None) -> str:
+    """根据主题名生成完整 QSS 样式表。
+
+    Args:
+        theme:            主题键名（或 "system" 自动检测）
+        font_family:      自定义字体名称（空=主题默认）
+        font_size:        自定义字体大小 pt（0=默认13px）
+        palette_override: 覆盖调色板中特定颜色的字典，如 {"accent": "#FF0000"}
+    """
     if theme == "system":
         # 跟随系统：检测系统深浅色
         try:
@@ -154,22 +164,35 @@ def get_stylesheet(theme: str = "dark") -> str:
         except Exception:
             theme = "dark"
 
-    p = PALETTES.get(theme, PALETTES["dark"])
-    return _build_qss(p)
+    p = dict(PALETTES.get(theme, PALETTES["dark"]))
+    # 应用调色板覆盖
+    if palette_override:
+        for k, v in palette_override.items():
+            if k in p and v:
+                p[k] = v
+
+    return _build_qss(p, font_family=font_family, font_size=font_size)
 
 
-def _build_qss(p: Dict[str, str]) -> str:
+def _build_qss(p: Dict[str, str],
+               font_family: str = "",
+               font_size: int = 0) -> str:
     is_dark = p["mode"] == "dark"
     # 卡片/块背景（比 bg0 稍亮）
     card_bg = _lighten(p["bg0"], 0.05) if is_dark else p["bg2"]
+
+    # 字体设置
+    _default_family = '"Microsoft YaHei UI", "Segoe UI", sans-serif'
+    _family = f'"{font_family}", {_default_family}' if font_family else _default_family
+    _size   = f"{font_size}px" if font_size > 0 else "13px"
 
     return f"""
 /* ─── 全局 ─── */
 QWidget {{
     background-color: {p["bg0"]};
     color: {p["fg0"]};
-    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
-    font-size: 13px;
+    font-family: {_family};
+    font-size: {_size};
 }}
 QMainWindow {{ background-color: {p["bg0"]}; }}
 

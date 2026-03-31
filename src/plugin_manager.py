@@ -91,6 +91,14 @@ class PluginManager:
         self._plugin_block_params: Dict[str, dict] = {}  # type -> BLOCK_PARAMS 条目
         self._plugin_executors: Dict[str, Callable] = {} # type -> executor 函数
         self._plugin_triggers: List[dict] = []           # 所有插件触发器定义
+        # ── 新增：扩展资源 ──
+        self._plugin_conditions: List[dict] = []         # 所有插件条件定义（约束+判断）
+        self._condition_evaluators: Dict[str, Callable] = {}  # type -> evaluator
+        self._plugin_hotkeys: List[dict] = []            # 所有插件快捷键定义
+        self._hotkey_bindings: Dict[str, str] = {}       # id -> 当前绑定按键（用户可覆盖）
+        self._plugin_settings_tabs: List[tuple] = []     # [(title, widget), ...]
+        self._plugin_context_menus: List[dict] = []      # 右键菜单扩展项
+        self._plugin_tray_menus: List[dict] = []         # 托盘菜单扩展项
         # 变更回调（UI 监听）
         self._on_changed_callbacks: List[Callable] = []
         _ensure_plugin_dir()
@@ -104,12 +112,17 @@ class PluginManager:
                 with open(_PLUGIN_STATE_F, "r", encoding="utf-8") as f:
                     state = json.load(f)
                 self._enabled = set(state.get("enabled", []))
+                self._hotkey_bindings = state.get("hotkey_bindings", {})
         except Exception:
             self._enabled = set()
+            self._hotkey_bindings = {}
 
     def _save_state(self):
         try:
-            state = {"enabled": list(self._enabled)}
+            state = {
+                "enabled": list(self._enabled),
+                "hotkey_bindings": self._hotkey_bindings,
+            }
             with open(_PLUGIN_STATE_F, "w", encoding="utf-8") as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -191,16 +204,45 @@ class PluginManager:
             # 将插件目录加入 sys.path（允许插件内相对导入）
             if meta.dir not in sys.path:
                 sys.path.insert(0, meta.dir)
+
+            # ── 注入兼容模块 autoflow_plugin_api ──────────────────
+            # 旧版插件或社区插件可能 `from autoflow_plugin_api import PluginBase`
+            # 此处动态创建兼容模块并注入 sys.modules，使其指向本包的 AutoFlowPlugin
+            if "autoflow_plugin_api" not in sys.modules:
+                import types as _types
+                _compat = _types.ModuleType("autoflow_plugin_api")
+                _compat.PluginBase        = AutoFlowPlugin   # 兼容旧命名
+                _compat.AutoFlowPlugin    = AutoFlowPlugin
+                _compat.PluginRegistrationAPI = PluginRegistrationAPI
+                sys.modules["autoflow_plugin_api"] = _compat
+            # ──────────────────────────────────────────────────────
+
             spec.loader.exec_module(module)
 
             # 调用 register(api)
+            # 兼容两种插件签名：
+            #   新版：register(api)  直接调 api.register_plugin(plugin)
+            #   旧版：register()     返回 AutoFlowPlugin 实例
             if not hasattr(module, "register"):
                 meta.error = "未找到 register(api) 函数"
                 logger.error(f"[{meta.id}] {meta.error}")
                 return False
 
             api = PluginRegistrationAPI(self)
-            module.register(api)
+
+            import inspect as _inspect
+            _reg_sig = _inspect.signature(module.register)
+            if len(_reg_sig.parameters) == 0:
+                # 旧版签名：register() → 返回插件实例
+                _plugin_inst = module.register()
+                if isinstance(_plugin_inst, AutoFlowPlugin):
+                    api.register_plugin(_plugin_inst)
+                else:
+                    meta.error = "register() 未返回有效的 AutoFlowPlugin 实例"
+                    logger.error(f"[{meta.id}] {meta.error}")
+                    return False
+            else:
+                module.register(api)
             meta.loaded = True
             meta.error  = ""
             if meta.id not in self._loaded_ids:
@@ -216,6 +258,22 @@ class PluginManager:
     def _do_register(self, plugin: AutoFlowPlugin) -> None:
         """由 PluginRegistrationAPI 调用，将插件注入到宿主系统"""
         pid = plugin.id
+        # 兼容旧版插件：id 可能在 get_info() 里返回而不是直接设置到属性
+        if not pid:
+            try:
+                info = plugin.get_info() if hasattr(plugin, "get_info") else {}
+                pid = info.get("id", "") if isinstance(info, dict) else ""
+                if pid:
+                    plugin.id = pid  # 回写，使后续访问一致
+                    # 同步 name/version/author（若基类属性为空）
+                    if not plugin.name:
+                        plugin.name = info.get("name", pid)
+                    if plugin.version == "1.0.0" or not plugin.version:
+                        plugin.version = info.get("version", plugin.version)
+                    if not plugin.author:
+                        plugin.author = info.get("author", "")
+            except Exception:
+                pass
         if not pid:
             logger.warning("插件未设置 id，跳过注册")
             return
@@ -256,6 +314,61 @@ class PluginManager:
                 self._plugin_triggers.append(tdef)
                 logger.debug(f"[{pid}] 注册触发器: {tdef['type']}")
 
+        # ── 注册约束/判断条件 ──
+        try:
+            for cdef in plugin.get_conditions():
+                ctype = cdef.get("type")
+                if not ctype:
+                    continue
+                self._plugin_conditions.append(cdef)
+                if "evaluator" in cdef:
+                    self._condition_evaluators[ctype] = cdef["evaluator"]
+                logger.debug(f"[{pid}] 注册条件: {ctype}")
+        except Exception as e:
+            logger.warning(f"[{pid}] get_conditions 失败: {e}")
+
+        # ── 注册快捷键 ──
+        try:
+            for hdef in plugin.get_hotkeys():
+                hid = hdef.get("id")
+                if not hid:
+                    continue
+                # 若用户曾手动绑定，用用户绑定；否则用默认
+                if hid not in self._hotkey_bindings:
+                    self._hotkey_bindings[hid] = hdef.get("default", "")
+                self._plugin_hotkeys.append({**hdef, "_binding": self._hotkey_bindings[hid]})
+                logger.debug(f"[{pid}] 注册快捷键: {hid}")
+        except Exception as e:
+            logger.warning(f"[{pid}] get_hotkeys 失败: {e}")
+
+        # ── 注册设置 Tab ──
+        try:
+            tab_info = plugin.get_settings_tab()
+            if tab_info is not None:
+                tab_title, tab_widget = tab_info
+                self._plugin_settings_tabs.append((tab_title, tab_widget, pid))
+                logger.debug(f"[{pid}] 注册设置Tab: {tab_title}")
+        except Exception as e:
+            logger.warning(f"[{pid}] get_settings_tab 失败: {e}")
+
+        # ── 注册右键菜单项 ──
+        try:
+            for mdef in plugin.get_context_menu_items():
+                if mdef.get("id"):
+                    self._plugin_context_menus.append(mdef)
+                    logger.debug(f"[{pid}] 注册右键菜单: {mdef['id']}")
+        except Exception as e:
+            logger.warning(f"[{pid}] get_context_menu_items 失败: {e}")
+
+        # ── 注册托盘菜单项 ──
+        try:
+            for mdef in plugin.get_tray_menu_items():
+                if mdef.get("id"):
+                    self._plugin_tray_menus.append(mdef)
+                    logger.debug(f"[{pid}] 注册托盘菜单: {mdef['id']}")
+        except Exception as e:
+            logger.warning(f"[{pid}] get_tray_menu_items 失败: {e}")
+
         # 通知 UI 变更
         self._fire_changed()
 
@@ -276,6 +389,37 @@ class PluginManager:
                 self._plugin_executors.pop(btype, None)
             self._plugin_block_types.clear()
             self._plugin_block_params.clear()
+            # 移除条件
+            self._plugin_conditions = [
+                c for c in self._plugin_conditions
+                if not c.get("type", "").startswith(f"{plugin_id}.")
+            ]
+            for ctype in [k for k in self._condition_evaluators
+                          if k.startswith(f"{plugin_id}.")]:
+                self._condition_evaluators.pop(ctype, None)
+            # 移除快捷键
+            self._plugin_hotkeys = [
+                h for h in self._plugin_hotkeys
+                if not h.get("id", "").startswith(f"{plugin_id}.")
+            ]
+            # 移除设置Tab
+            self._plugin_settings_tabs = [
+                t for t in self._plugin_settings_tabs if t[2] != plugin_id
+            ]
+            # 移除菜单
+            self._plugin_context_menus = [
+                m for m in self._plugin_context_menus
+                if not m.get("id", "").startswith(f"{plugin_id}.")
+            ]
+            self._plugin_tray_menus = [
+                m for m in self._plugin_tray_menus
+                if not m.get("id", "").startswith(f"{plugin_id}.")
+            ]
+            # 移除触发器
+            self._plugin_triggers = [
+                t for t in self._plugin_triggers
+                if not t.get("type", "").startswith(f"{plugin_id}.")
+            ]
             meta.instance = None
         meta.loaded = False
         if plugin_id in self._loaded_ids:
@@ -314,6 +458,46 @@ class PluginManager:
 
     def is_plugin_block(self, block_type: str) -> bool:
         return block_type in self._plugin_block_types
+
+    def get_plugin_conditions(self, scope: str = "both") -> List[dict]:
+        """返回指定场景的插件条件定义列表（scope: constraint/if/both）"""
+        result = []
+        for c in self._plugin_conditions:
+            cscope = c.get("scope", "both")
+            if scope == "both" or cscope == "both" or cscope == scope:
+                result.append(c)
+        return result
+
+    def get_condition_evaluator(self, ctype: str) -> Optional[Callable]:
+        return self._condition_evaluators.get(ctype)
+
+    def get_plugin_hotkeys(self) -> List[dict]:
+        """返回所有插件快捷键定义（含当前绑定键）"""
+        return list(self._plugin_hotkeys)
+
+    def set_hotkey_binding(self, hotkey_id: str, key: str) -> None:
+        """用户修改快捷键绑定，持久化"""
+        self._hotkey_bindings[hotkey_id] = key
+        for hdef in self._plugin_hotkeys:
+            if hdef.get("id") == hotkey_id:
+                hdef["_binding"] = key
+        self._save_state()
+
+    def get_plugin_settings_tabs(self) -> List[tuple]:
+        """返回 [(tab_title, widget, plugin_id), ...]"""
+        return list(self._plugin_settings_tabs)
+
+    def get_context_menu_items(self, block_type: str = "") -> List[dict]:
+        """返回适用于 block_type 的右键菜单扩展项"""
+        result = []
+        for m in self._plugin_context_menus:
+            for_types = m.get("for_types", [])
+            if not for_types or block_type in for_types:
+                result.append(m)
+        return result
+
+    def get_tray_menu_items(self) -> List[dict]:
+        return list(self._plugin_tray_menus)
 
     # ── 变更通知 ──
 

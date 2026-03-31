@@ -633,7 +633,7 @@ class ProcessWindowListDialog(QDialog):
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        btns.accepted.connect(self._accept_selection)
+        btns.button(QDialogButtonBox.StandardButton.Ok).clicked.connect(self._accept_selection)
         btns.rejected.connect(self.reject)
         btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("btn.ok"))
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("btn.cancel"))
@@ -729,7 +729,7 @@ class ProcessWindowListDialog(QDialog):
         name_item = self._table.item(row, 0 if self._mode != "both" else 1)
         if name_item:
             self.selected_value = name_item.text()
-        self.accept()
+        QDialog.accept(self)
 
 
 # ─────────────────── 窗口类名选择对话框 ───────────────────
@@ -788,15 +788,19 @@ class WindowClassListDialog(QDialog):
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        btns.accepted.connect(self._accept_selection)
+        # 注意：不能把 btns.accepted 直接连 _accept_selection 再在里面调 self.accept()
+        # 否则 accepted 信号会递归触发。改用 clicked 检测按钮身份。
+        btns.button(QDialogButtonBox.StandardButton.Ok).clicked.connect(self._accept_selection)
         btns.rejected.connect(self.reject)
         btns.button(QDialogButtonBox.StandardButton.Ok).setText("确定")
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
         layout.addWidget(btns)
 
     def _refresh(self):
-        import ctypes, ctypes.wintypes
+        import ctypes
+        import ctypes.wintypes
         user32 = ctypes.windll.user32
+
         EnumWindowsCB = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
         wins = []
 
@@ -859,7 +863,8 @@ class WindowClassListDialog(QDialog):
             self.selected_title = item_title.text()
         if item_proc:
             self.selected_process = item_proc.text()
-        self.accept()
+        # 用 QDialog.accept 绕过 btns.accepted signal，避免递归触发
+        QDialog.accept(self)
 
 
 # ─────────────────── 坐标选点控件 ───────────────────
@@ -2382,6 +2387,18 @@ class BlockEditDialog(QDialog):
             for i, opt in enumerate(options):
                 label = labels[i] if i < len(labels) else opt
                 w.addItem(label, userData=opt)  # userData 存储真实 value
+            # 若为条件类型字段，额外追加插件扩展的条件选项
+            if key == "condition_type":
+                try:
+                    from ..plugin_manager import PluginManager
+                    for cdef in PluginManager.instance().get_plugin_conditions(scope="if"):
+                        ctype  = cdef.get("type", "")
+                        clabel = cdef.get("label", ctype)
+                        icon   = cdef.get("icon", "🔌")
+                        if ctype and not any(w.itemData(j) == ctype for j in range(w.count())):
+                            w.addItem(f"{icon} {clabel}（插件）", userData=ctype)
+                except Exception:
+                    pass
             # 根据 default 选中对应项
             for i in range(w.count()):
                 if w.itemData(i) == default:
@@ -4794,6 +4811,21 @@ class BlockListWidget(QWidget):
         # ── 删除 ──
         act_del = menu.addAction("✕  删除此块")
 
+        # ── 插件扩展右键菜单项 ──
+        plugin_actions = []
+        try:
+            from ..plugin_manager import PluginManager
+            pm_items = PluginManager.instance().get_context_menu_items(bt)
+            if pm_items:
+                menu.addSeparator()
+                for mdef in pm_items:
+                    icon_text = mdef.get("icon", "🔌")
+                    label_text = mdef.get("label", mdef.get("id", ""))
+                    pa = menu.addAction(f"{icon_text}  {label_text}")
+                    plugin_actions.append((pa, mdef))
+        except Exception:
+            pass
+
         action = menu.exec(global_pos)
         if not action:
             return
@@ -4819,6 +4851,18 @@ class BlockListWidget(QWidget):
             self._copy_selected()
         elif action == act_del:
             self._delete_block(card.block)
+        else:
+            # 插件菜单项
+            for pa, mdef in plugin_actions:
+                if action == pa:
+                    try:
+                        cb = mdef.get("callback")
+                        if callable(cb):
+                            cb(card.block.to_dict() if hasattr(card.block, 'to_dict') else {})
+                    except Exception as e:
+                        import logging as _logging
+                        _logging.getLogger("autoflow.plugin").warning(f"插件菜单回调失败: {e}")
+                    break
 
     def _run_single_block(self, block: Block):
         """运行单个功能块——发出信号通知上层"""

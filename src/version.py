@@ -555,11 +555,38 @@
 #     遍历所有顶层窗口逐一用 child_window(**ctrl_kw).wrapper_object() 尝试找控件；
 #     优先检查与 hwnd 对应的窗口，对弹出子对话框（类名不稳定）也能正确定位；
 
-VERSION       = "4.15.0"
-VERSION_TUPLE = (4, 15, 0)
+VERSION       = "4.16.0"
+VERSION_TUPLE = (4, 16, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
+
+# v4.16.0  2026-03-31
+#   【主题系统升级 + 插件系统扩展】
+#
+#   主题系统升级（theme_manager.py + settings_page.py + main_window.py）：
+#     - 自定义背景图/GIF：支持 PNG/JPG/WEBP/GIF，透明度、显示模式（填充/适应/居中/平铺）
+#     - 自定义字体：从 TTF/OTF/WOFF 文件注册字体，自动回填字体名称
+#     - 自定义配色（调色板覆盖）：通过 key=value 文本框覆盖任意调色板变量
+#     - 主题整合包（.aftheme = ZIP）：导入/导出，整合背景+字体+配色为单文件
+#     - 主题市场（theme_market.py）：从社区仓库下载主题整合包，类似语言包/插件市场
+#     - 外观 Tab 完整扩展（5 个分组：语言/主题预设/背景/字体/整合包）
+#     - main_window._apply_theme 支持字体注册、调色板覆盖、背景图/GIF 安装
+#
+#   插件系统升级（plugin_api.py + plugin_manager.py）：
+#     - get_conditions()：约束条件/判断条件扩展 API，scope=constraint/if/both
+#     - get_hotkeys()：注册全局快捷键，支持用户自定义绑定，持久化到 plugin_state.json
+#     - get_settings_tab()：在设置面板中添加独立 Tab（SettingsPage 动态追加）
+#     - get_context_menu_items()：扩展功能块右键菜单（可指定 for_types 仅在特定块显示）
+#     - get_tray_menu_items()：扩展系统托盘菜单（_refresh_tray_menu 动态注入）
+#     - get_settings_widget()：插件管理页内联设置
+#     - open_dialog()：便捷弹窗 API（在主线程弹出自定义对话框）
+#     - plugin_manager._do_register：完整处理新增6类扩展资源
+#     - plugin_manager.unload_plugin：精确清理插件注入的条件/快捷键/Tab/菜单/触发器
+#     - runner._eval_condition + _eval_constraint：末尾委托插件条件评估器
+#     - constraint_editor：条件下拉追加插件扩展条件选项
+#     - block_editor select 控件：condition_type 字段追加插件条件选项
+#     - 权限声明新增：condition / hotkey / setting / menu
 
 # v4.1.0   2026-03-29
 #   【屏幕识别 + 窗口控件操作 两大新功能分类】

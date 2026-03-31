@@ -98,6 +98,13 @@ class SettingsPage(QWidget):
         tabs.addTab(self._build_ai_tab(),       "  AI  ")
         tabs.addTab(self._build_advanced_tab(), "  高级  ")
         tabs.addTab(self._build_about_tab(),    "  关于  ")
+        # ── 插件扩展 Tab ──
+        try:
+            from ..plugin_manager import PluginManager
+            for tab_title, tab_widget, _pid in PluginManager.instance().get_plugin_settings_tabs():
+                tabs.addTab(tab_widget, f"  {tab_title}  ")
+        except Exception:
+            pass
         root.addWidget(tabs)
 
         save_btn = QPushButton("  " + tr("settings.save"))
@@ -459,13 +466,13 @@ class SettingsPage(QWidget):
 
         layout.addWidget(self._grp_lang)
 
+        # ── 主题预设 ──
         self._grp_theme = QGroupBox(tr("settings.grp.theme"))
         gf  = QFormLayout(self._grp_theme)
         gf.setSpacing(12)
 
         self._theme_combo = QComboBox()
         self._theme_combo.addItem(tr("settings.theme_follow"), "system")
-        # 按深/浅分组
         dark_items  = [(k, v) for k, v in PALETTES.items() if v["mode"] == "dark"]
         light_items = [(k, v) for k, v in PALETTES.items() if v["mode"] == "light"]
         for k, v in dark_items:
@@ -488,6 +495,170 @@ class SettingsPage(QWidget):
         self._theme_hint.setObjectName("hint")
         layout.addWidget(self._theme_hint)
 
+        # ── 自定义背景 ──
+        self._grp_bg = QGroupBox("自定义背景")
+        gf_bg = QFormLayout(self._grp_bg)
+        gf_bg.setSpacing(10)
+
+        # 背景图路径
+        bg_row = QHBoxLayout()
+        self._bg_path_edit = QLineEdit()
+        self._bg_path_edit.setPlaceholderText("选择图片/GIF（留空则不使用背景）")
+        bg_row.addWidget(self._bg_path_edit)
+        self._bg_browse_btn = QPushButton("浏览")
+        self._bg_browse_btn.setFixedHeight(26)
+        self._bg_browse_btn.setMinimumWidth(52)
+        self._bg_browse_btn.clicked.connect(self._browse_bg_image)
+        bg_row.addWidget(self._bg_browse_btn)
+        self._bg_clear_btn = QPushButton("清除")
+        self._bg_clear_btn.setFixedHeight(26)
+        self._bg_clear_btn.setMinimumWidth(52)
+        self._bg_clear_btn.setObjectName("btn_flat")
+        self._bg_clear_btn.clicked.connect(lambda: self._bg_path_edit.clear())
+        bg_row.addWidget(self._bg_clear_btn)
+        gf_bg.addRow("背景图/GIF：", bg_row)
+
+        # 背景透明度
+        self._bg_opacity_spin = FocusDoubleSpinBox()
+        self._bg_opacity_spin.setRange(0.0, 1.0)
+        self._bg_opacity_spin.setSingleStep(0.05)
+        self._bg_opacity_spin.setDecimals(2)
+        self._bg_opacity_spin.setValue(0.15)
+        self._bg_opacity_spin.setFixedWidth(90)
+        gf_bg.addRow("透明度（0~1）：", self._bg_opacity_spin)
+
+        # 背景模式
+        self._bg_mode_combo = QComboBox()
+        self._bg_mode_combo.addItem("铺满（填充裁剪）", "fill")
+        self._bg_mode_combo.addItem("适应（保持比例）", "contain")
+        self._bg_mode_combo.addItem("居中", "center")
+        self._bg_mode_combo.addItem("平铺", "tile")
+        self._bg_mode_combo.setFixedWidth(160)
+        gf_bg.addRow("显示模式：", self._bg_mode_combo)
+
+        _bg_hint = QLabel("支持 PNG/JPG/WEBP/GIF（动图）。背景仅在主窗口显示，不影响功能。")
+        _bg_hint.setObjectName("hint")
+        _bg_hint.setWordWrap(True)
+        gf_bg.addRow("", _bg_hint)
+
+        layout.addWidget(self._grp_bg)
+
+        # ── 自定义字体 ──
+        self._grp_font = QGroupBox("自定义字体")
+        gf_font = QFormLayout(self._grp_font)
+        gf_font.setSpacing(10)
+
+        font_row = QHBoxLayout()
+        self._font_family_edit = QLineEdit()
+        self._font_family_edit.setPlaceholderText("字体名称，如 微软雅黑（留空=主题默认）")
+        font_row.addWidget(self._font_family_edit)
+        self._font_file_btn = QPushButton("载入字体文件")
+        self._font_file_btn.setFixedHeight(26)
+        self._font_file_btn.setMinimumWidth(90)
+        self._font_file_btn.setObjectName("btn_flat")
+        self._font_file_btn.clicked.connect(self._load_font_file)
+        font_row.addWidget(self._font_file_btn)
+        gf_font.addRow("字体名称：", font_row)
+
+        self._font_size_spin = FocusSpinBox()
+        self._font_size_spin.setRange(0, 32)
+        self._font_size_spin.setValue(0)
+        self._font_size_spin.setSpecialValueText("默认（13px）")
+        self._font_size_spin.setSuffix(" px")
+        self._font_size_spin.setFixedWidth(120)
+        gf_font.addRow("字体大小：", self._font_size_spin)
+
+        _font_hint = QLabel("载入 TTF/OTF 文件后，字体名称会自动填入。重启后方可见全局效果。")
+        _font_hint.setObjectName("hint")
+        _font_hint.setWordWrap(True)
+        gf_font.addRow("", _font_hint)
+
+        layout.addWidget(self._grp_font)
+
+        # ── 自定义配色 ──
+        self._grp_palette = QGroupBox("自定义配色（调色板覆盖）")
+        gf_pal = QVBoxLayout(self._grp_palette)
+        gf_pal.setSpacing(8)
+
+        _pal_hint = QLabel(
+            "覆盖当前主题的颜色变量。输入 key=颜色值（#RRGGBB），每行一个。\n"
+            "可用 key：bg0 bg1 bg2 bg3 bg4 accent accent2 success warn danger fg0 fg1 fg2"
+        )
+        _pal_hint.setObjectName("hint")
+        _pal_hint.setWordWrap(True)
+        gf_pal.addWidget(_pal_hint)
+
+        from PyQt6.QtWidgets import QPlainTextEdit
+        self._palette_override_edit = QPlainTextEdit()
+        self._palette_override_edit.setPlaceholderText(
+            "示例：\naccent=#FF6B6B\nbg0=#121212\nfg0=#FFFFFF"
+        )
+        self._palette_override_edit.setFixedHeight(100)
+        self._palette_override_edit.setObjectName("code_edit")
+        gf_pal.addWidget(self._palette_override_edit)
+
+        pal_btn_row = QHBoxLayout()
+        self._pal_reset_btn = QPushButton("清空覆盖")
+        self._pal_reset_btn.setObjectName("btn_flat")
+        self._pal_reset_btn.setFixedHeight(26)
+        self._pal_reset_btn.clicked.connect(lambda: self._palette_override_edit.clear())
+        pal_btn_row.addWidget(self._pal_reset_btn)
+        pal_btn_row.addStretch()
+        gf_pal.addLayout(pal_btn_row)
+
+        layout.addWidget(self._grp_palette)
+
+        # ── 整合包 ──
+        self._grp_pack = QGroupBox("主题整合包（.aftheme）")
+        gf_pack = QVBoxLayout(self._grp_pack)
+        gf_pack.setSpacing(8)
+
+        _pack_hint = QLabel(
+            "整合包将背景/字体/配色打包为单个文件，方便分享与切换。\n"
+            "导入后，整合包的设置优先级低于上方的单独配置。"
+        )
+        _pack_hint.setObjectName("hint")
+        _pack_hint.setWordWrap(True)
+        gf_pack.addWidget(_pack_hint)
+
+        # 当前加载的整合包
+        pack_cur_row = QHBoxLayout()
+        self._pack_cur_lbl = QLabel("未加载整合包")
+        self._pack_cur_lbl.setObjectName("hint")
+        pack_cur_row.addWidget(self._pack_cur_lbl)
+        pack_cur_row.addStretch()
+        self._pack_unload_btn = QPushButton("卸载")
+        self._pack_unload_btn.setObjectName("btn_flat")
+        self._pack_unload_btn.setFixedHeight(26)
+        self._pack_unload_btn.setMinimumWidth(52)
+        self._pack_unload_btn.clicked.connect(self._unload_theme_pack)
+        pack_cur_row.addWidget(self._pack_unload_btn)
+        gf_pack.addLayout(pack_cur_row)
+
+        pack_btn_row = QHBoxLayout()
+        self._pack_import_btn = QPushButton("📦 导入整合包")
+        self._pack_import_btn.setObjectName("btn_flat")
+        self._pack_import_btn.setFixedHeight(28)
+        self._pack_import_btn.clicked.connect(self._import_theme_pack)
+        pack_btn_row.addWidget(self._pack_import_btn)
+
+        self._pack_export_btn = QPushButton("💾 导出整合包")
+        self._pack_export_btn.setObjectName("btn_flat")
+        self._pack_export_btn.setFixedHeight(28)
+        self._pack_export_btn.clicked.connect(self._export_theme_pack)
+        pack_btn_row.addWidget(self._pack_export_btn)
+
+        self._pack_market_btn = QPushButton("🌐 主题市场")
+        self._pack_market_btn.setObjectName("btn_flat")
+        self._pack_market_btn.setFixedHeight(28)
+        self._pack_market_btn.clicked.connect(self._open_theme_market)
+        pack_btn_row.addWidget(self._pack_market_btn)
+
+        pack_btn_row.addStretch()
+        gf_pack.addLayout(pack_btn_row)
+
+        layout.addWidget(self._grp_pack)
+
         layout.addStretch()
         page.setWidget(container)
         return page
@@ -509,6 +680,136 @@ class SettingsPage(QWidget):
             f"<b style='color:{accent}'>{name}</b>  "
             f"<span style='color:{fg2}'>预览</span>"
         )
+
+    def _browse_bg_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择背景图片",
+            os.path.expanduser("~"),
+            "图片/动图 (*.png *.jpg *.jpeg *.webp *.gif)"
+        )
+        if path:
+            self._bg_path_edit.setText(path)
+
+    def _load_font_file(self):
+        """导入字体文件并自动注册，回填字体名称"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择字体文件",
+            os.path.expanduser("~"),
+            "字体文件 (*.ttf *.otf *.woff *.woff2)"
+        )
+        if not path:
+            return
+        try:
+            from .theme_manager import register_font
+            family = register_font(path)
+            if family:
+                self._font_family_edit.setText(family)
+                QMessageBox.information(self, "字体载入成功", f"字体 {family} 已注册。\n保存设置后生效。")
+            else:
+                QMessageBox.warning(self, "字体载入失败", "未能从字体文件中读取字体名称。")
+        except Exception as e:
+            QMessageBox.warning(self, "字体载入失败", str(e))
+
+    def _import_theme_pack(self):
+        """导入 .aftheme 整合包"""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入主题整合包",
+            os.path.expanduser("~"),
+            "AutoFlow 主题包 (*.aftheme)"
+        )
+        if not path:
+            return
+        try:
+            from .theme_manager import import_theme_pack
+            pack = import_theme_pack(path)
+            # 加载并应用整合包：更新配置 ID
+            self.config.theme_pack_path = pack.id
+            self._refresh_pack_label()
+            QMessageBox.information(
+                self, "导入成功",
+                f"整合包「{pack.name}」导入成功！\n保存设置后即可应用。"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "导入失败", str(e))
+
+    def _export_theme_pack(self):
+        """将当前主题配置导出为 .aftheme 整合包"""
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "导出整合包", "整合包名称：", text="我的主题")
+        if not ok or not name.strip():
+            return
+        pack_id, ok2 = QInputDialog.getText(self, "导出整合包", "整合包 ID（英文）：",
+                                             text="my_theme")
+        if not ok2 or not pack_id.strip():
+            return
+
+        out_path, _ = QFileDialog.getSaveFileName(
+            self, "保存整合包",
+            os.path.join(os.path.expanduser("~"), f"{pack_id.strip()}.aftheme"),
+            "AutoFlow 主题包 (*.aftheme)"
+        )
+        if not out_path:
+            return
+
+        try:
+            from .theme_manager import export_theme_pack
+            # 解析当前配置
+            palette_text = self._palette_override_edit.toPlainText().strip()
+            palette_override = {}
+            for line in palette_text.splitlines():
+                line = line.strip()
+                if "=" in line:
+                    k, _, v = line.partition("=")
+                    palette_override[k.strip()] = v.strip()
+
+            export_theme_pack(
+                pack_id=pack_id.strip(),
+                name=name.strip(),
+                author="",
+                description="",
+                base_theme=self._theme_combo.currentData() or "dark",
+                palette_override=palette_override,
+                bg_path=self._bg_path_edit.text().strip() or None,
+                font_path=None,
+                font_family=self._font_family_edit.text().strip(),
+                font_size=self._font_size_spin.value(),
+                bg_opacity=self._bg_opacity_spin.value(),
+                bg_mode=self._bg_mode_combo.currentData() or "fill",
+                out_path=out_path,
+            )
+            QMessageBox.information(self, "导出成功", f"整合包已保存到：\n{out_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "导出失败", str(e))
+
+    def _unload_theme_pack(self):
+        """卸载当前整合包"""
+        self.config.theme_pack_path = ""
+        self._refresh_pack_label()
+        QMessageBox.information(self, "已卸载", "整合包已卸载，保存设置后生效。")
+
+    def _refresh_pack_label(self):
+        """刷新当前整合包标签"""
+        pack_id = getattr(self.config, "theme_pack_path", "")
+        if pack_id:
+            try:
+                from .theme_manager import get_installed_pack
+                pack = get_installed_pack(pack_id)
+                if pack:
+                    self._pack_cur_lbl.setText(f"已加载：{pack.name}（{pack.id}）v{pack.version}")
+                    return
+            except Exception:
+                pass
+            self._pack_cur_lbl.setText(f"已加载：{pack_id}")
+        else:
+            self._pack_cur_lbl.setText("未加载整合包")
+
+    def _open_theme_market(self):
+        """打开主题市场对话框"""
+        from .theme_market import ThemeMarketPage
+        dlg = ThemeMarketPage(self)
+        dlg.exec()
+        # 市场关闭后刷新整合包状态
+        self._refresh_pack_label()
 
     # ─── 按键 ───
     def _build_hotkeys_tab(self) -> QWidget:
@@ -1343,6 +1644,21 @@ class SettingsPage(QWidget):
         if idx_lang >= 0:
             self._lang_combo.setCurrentIndex(idx_lang)
 
+        # 背景/字体/配色/整合包
+        self._bg_path_edit.setText(getattr(c, 'theme_bg_image', ''))
+        self._bg_opacity_spin.setValue(getattr(c, 'theme_bg_opacity', 0.15))
+        bg_mode_idx = self._bg_mode_combo.findData(getattr(c, 'theme_bg_mode', 'fill'))
+        self._bg_mode_combo.setCurrentIndex(bg_mode_idx if bg_mode_idx >= 0 else 0)
+        self._font_family_edit.setText(getattr(c, 'theme_font_family', ''))
+        self._font_size_spin.setValue(getattr(c, 'theme_font_size', 0))
+        # 配色覆盖：dict → 文本
+        pal_dict = getattr(c, 'theme_palette_override', {}) or {}
+        self._palette_override_edit.setPlainText(
+            '\n'.join(f"{k}={v}" for k, v in pal_dict.items())
+        )
+        # 整合包标签
+        self._refresh_pack_label()
+
         # AI 配置 — 先填 model/base_url，再切换 provider（避免 _on_ai_provider_changed 覆盖已保存值）
         self._ai_model.setText(getattr(c, 'ai_model', 'gpt-4o-mini'))
         self._ai_api_key.setText(getattr(c, 'ai_api_key', ''))
@@ -1399,6 +1715,23 @@ class SettingsPage(QWidget):
 
         c.theme = self._theme_combo.currentData() or "dark"
         c.language = self._lang_combo.currentData() or "zh_CN"
+
+        # 背景/字体/配色/整合包
+        c.theme_bg_image   = self._bg_path_edit.text().strip()
+        c.theme_bg_opacity = self._bg_opacity_spin.value()
+        c.theme_bg_mode    = self._bg_mode_combo.currentData() or "fill"
+        c.theme_font_family = self._font_family_edit.text().strip()
+        c.theme_font_size   = self._font_size_spin.value()
+        # 配色覆盖：文本 → dict
+        pal_text = self._palette_override_edit.toPlainText().strip()
+        pal_dict = {}
+        for line in pal_text.splitlines():
+            line = line.strip()
+            if "=" in line:
+                k, _, v = line.partition("=")
+                pal_dict[k.strip()] = v.strip()
+        c.theme_palette_override = pal_dict
+        # theme_pack_path 由 _import_theme_pack/_unload 直接写入 self.config，这里同步
 
         # AI 配置
         c.ai_provider     = self._ai_provider.currentData() or "openai"

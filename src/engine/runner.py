@@ -2717,6 +2717,23 @@ except Exception as e:
                 return latency is not None and latency < threshold
             except Exception:
                 return False
+        else:
+            # ── 委托给插件条件评估器 ──
+            try:
+                from ..plugin_manager import PluginManager
+                pm = PluginManager.instance()
+                evaluator = pm.get_condition_evaluator(ct)
+                if evaluator is not None:
+                    from ..plugin_api import BlockExecutionContext
+                    ctx = BlockExecutionContext(
+                        variables=self.variables,
+                        log=self._log,
+                        stop_event=getattr(self, '_stop_event', None),
+                        config=self.config,
+                    )
+                    return bool(evaluator({"target": target, "value": value}, ctx))
+            except Exception as e:
+                logger.warning(f"插件条件 {ct} 评估失败: {e}")
         return False
 
     def _get_clipboard_text(self) -> str:
@@ -3802,6 +3819,24 @@ except Exception as e:
                 return weekday in allowed
             except Exception:
                 return False
+        else:
+            # ── 委托给插件条件评估器 ──
+            try:
+                from ..plugin_manager import PluginManager
+                pm = PluginManager.instance()
+                evaluator = pm.get_condition_evaluator(ct)
+                if evaluator is not None:
+                    from ..plugin_api import BlockExecutionContext
+                    ctx = BlockExecutionContext(
+                        variables=self.variables,
+                        log=self._log,
+                        stop_event=getattr(self, '_stop_event', None),
+                        config=self.config,
+                    )
+                    params = {"target": c.target, "value": c.value}
+                    return bool(evaluator(params, ctx))
+            except Exception as e:
+                logger.warning(f"插件条件 {ct} 评估失败: {e}")
         return False
 
     # ─────────────────── 新增辅助方法 ───────────────────

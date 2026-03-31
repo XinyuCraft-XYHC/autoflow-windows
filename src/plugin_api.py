@@ -20,9 +20,17 @@ plugin.json 格式：
   "description": "插件功能描述",
   "min_app_version": "2.6.0",
   "entry": "main.py",
-  "permissions": ["block", "trigger", "setting"],
+  "permissions": ["block", "trigger", "condition", "hotkey", "setting", "menu"],
   "tags": ["工具", "效率"]
 }
+
+权限说明（permissions）：
+  block     - 提供自定义功能块
+  trigger   - 提供自定义触发器
+  condition - 提供自定义约束条件/判断条件
+  hotkey    - 注册全局快捷键
+  setting   - 在设置页面添加 Tab
+  menu      - 扩展右键菜单/托盘菜单
 """
 
 from __future__ import annotations
@@ -88,12 +96,103 @@ class AutoFlowPlugin:
         """
         return []
 
+    def get_conditions(self) -> List[Dict[str, Any]]:
+        """
+        返回此插件提供的约束条件/判断条件定义列表。
+        既可用于任务约束（constraint_editor），也可用于 if 条件判断。
+        每个字典格式：
+        {
+          "type":    "my_plugin.check_something",  # 全局唯一，建议带插件前缀
+          "label":   "检查某事",
+          "icon":    "🔍",                          # 可选
+          "params": {                               # 参数规格，同 BLOCK_PARAMS
+            "target": {"type": "string", "label": "目标值", "default": ""},
+          },
+          "evaluator": self._eval_check,  # Callable(params, ctx) -> bool
+          # 可选：条件可用于的场景（"constraint"=任务约束, "if"=判断条件, both=两者）
+          "scope": "both",
+        }
+        """
+        return []
+
+    def get_hotkeys(self) -> List[Dict[str, Any]]:
+        """
+        返回此插件注册的全局快捷键列表。
+        每个字典格式：
+        {
+          "id":       "my_plugin.action_x",  # 全局唯一
+          "label":    "触发动作X",             # 显示在设置 → 按键列表中
+          "default":  "ctrl+shift+x",         # 默认快捷键
+          "callback": self._on_hotkey_x,      # Callable() -> None（在主线程调用）
+        }
+        """
+        return []
+
     def get_settings_widget(self) -> Optional[Any]:
         """
-        返回插件设置页面的 QWidget，None 则不显示设置 Tab。
-        在 PluginManagerPage 中点击「设置」时显示。
+        返回插件设置页面的 QWidget（用于插件管理页面内联设置区域），
+        None 则不显示设置按钮。
         """
         return None
+
+    def get_settings_tab(self) -> Optional[Any]:
+        """
+        返回在「设置」面板中作为独立 Tab 展示的 QWidget。
+        返回值应为 (tab_title: str, widget: QWidget) 元组，或 None。
+        示例：return ("我的插件", MySettingsWidget())
+        """
+        return None
+
+    def get_context_menu_items(self) -> List[Dict[str, Any]]:
+        """
+        返回在任务编辑器功能块右键菜单中扩展的菜单项列表。
+        每个字典格式：
+        {
+          "id":       "my_plugin.menu_item",
+          "label":    "我的菜单项",
+          "icon":     "🔧",             # 可选
+          "callback": self._on_menu,    # Callable(block_data: dict) -> None
+          # 可选：仅对特定 block type 显示
+          "for_types": ["my_plugin.my_block"],
+        }
+        """
+        return []
+
+    def get_tray_menu_items(self) -> List[Dict[str, Any]]:
+        """
+        返回系统托盘菜单中扩展的菜单项列表。
+        每个字典格式：
+        {
+          "id":       "my_plugin.tray_item",
+          "label":    "托盘项目",
+          "icon":     "🔌",            # 可选
+          "callback": self._on_tray,   # Callable() -> None
+        }
+        """
+        return []
+
+    def open_dialog(self, title: str, widget_factory: Callable) -> Optional[Any]:
+        """
+        便捷方法：在主线程弹出一个对话框。
+        widget_factory: Callable(parent: QDialog) -> QWidget
+        返回对话框结果（QDialog.DialogCode）。
+        注意：仅在主线程中调用。
+        """
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QDialogButtonBox
+        try:
+            dlg = QDialog()
+            dlg.setWindowTitle(title)
+            layout = QVBoxLayout(dlg)
+            w = widget_factory(dlg)
+            layout.addWidget(w)
+            btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                    QDialogButtonBox.StandardButton.Cancel)
+            btns.accepted.connect(dlg.accept)
+            btns.rejected.connect(dlg.reject)
+            layout.addWidget(btns)
+            return dlg.exec()
+        except Exception:
+            return None
 
 
 # ─────────────────── 插件执行上下文 ───────────────────
@@ -159,3 +258,4 @@ class PluginRegistrationAPI:
         logging.getLogger("autoflow.plugin").log(
             getattr(logging, level.upper(), logging.INFO), message
         )
+

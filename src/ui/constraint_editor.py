@@ -180,9 +180,21 @@ class ConstraintItemWidget(QFrame):
         self._type_combo.setMinimumWidth(200)
         for key, label in CONSTRAINT_TYPES.items():
             self._type_combo.addItem(label, key)
-        idx = list(CONSTRAINT_TYPES.keys()).index(self.constraint.condition_type) \
-              if self.constraint.condition_type in CONSTRAINT_TYPES else 0
-        self._type_combo.setCurrentIndex(idx)
+        # ── 追加插件扩展条件 ──
+        try:
+            from ..plugin_manager import PluginManager
+            for cdef in PluginManager.instance().get_plugin_conditions(scope="constraint"):
+                ctype = cdef.get("type", "")
+                clabel = cdef.get("label", ctype)
+                icon   = cdef.get("icon", "🔌")
+                self._type_combo.addItem(f"{icon} {clabel}（插件）", ctype)
+        except Exception:
+            pass
+        # 恢复当前选中
+        all_types = [self._type_combo.itemData(i) for i in range(self._type_combo.count())]
+        ct_idx = all_types.index(self.constraint.condition_type) \
+                 if self.constraint.condition_type in all_types else 0
+        self._type_combo.setCurrentIndex(ct_idx)
         self._type_combo.currentIndexChanged.connect(self._on_type_changed)
         top_row.addWidget(self._type_combo, 1)
 
