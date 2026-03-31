@@ -63,6 +63,7 @@ class SettingsPage(QWidget):
         self._cr_install_done_sig.connect(self._on_chromium_install_done)
         self._cr_install_fail_sig.connect(self._on_chromium_install_fail)
 
+
     def __del__(self):
         try:
             remove_language_observer(self.retranslate)

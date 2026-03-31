@@ -2622,20 +2622,21 @@ def get_language() -> str:
     return _current_lang
 
 
-def tr(key: str, *args, default: str = None) -> str:
+def tr(__key: str, *args, default: str = None, **kwargs) -> str:
     """获取翻译文本，支持 .format() 占位符
     
     Args:
-        key: 翻译键
-        *args: format 占位符参数
+        __key: 翻译键（双下划线前缀避免与 **kwargs 中的同名参数冲突）
+        *args: 位置占位符参数（对应 {0} {1} ...）
         default: 找不到翻译时的默认值（不传则回退到 zh_CN，再无则返回 key）
+        **kwargs: 命名占位符参数（对应 {name} {pack_id} {key} 等）
     """
     lang_dict = _TRANSLATIONS.get(_current_lang, _TRANSLATIONS["zh_CN"])
-    fallback = default if default is not None else key
-    text = lang_dict.get(key, _TRANSLATIONS["zh_CN"].get(key, fallback))
-    if args:
+    fallback = default if default is not None else __key
+    text = lang_dict.get(__key, _TRANSLATIONS["zh_CN"].get(__key, fallback))
+    if args or kwargs:
         try:
-            text = text.format(*args)
+            text = text.format(*args, **kwargs)
         except Exception:
             pass
     return text
