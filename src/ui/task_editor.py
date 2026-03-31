@@ -88,7 +88,7 @@ class TaskEditorPage(QWidget):
         # ── 任务 ID 信息栏（灰色小字 + 复制按钮 + 命令行说明按钮）──
         id_bar = QHBoxLayout()
         id_bar.setSpacing(6)
-        self._id_prefix_lbl = QLabel("ID：")
+        self._id_prefix_lbl = QLabel(tr("task.id_prefix"))
         self._id_prefix_lbl.setStyleSheet("font-size: 11px; color: #6C7086;")
         id_bar.addWidget(self._id_prefix_lbl)
 
@@ -99,7 +99,7 @@ class TaskEditorPage(QWidget):
         self._id_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         id_bar.addWidget(self._id_lbl)
 
-        self._copy_id_btn = QPushButton("复制")
+        self._copy_id_btn = QPushButton(tr("task.copy_id_btn"))
         self._copy_id_btn.setFixedSize(44, 20)
         self._copy_id_btn.setStyleSheet(
             "QPushButton { font-size:10px; border-radius:3px; padding:1px 6px; "
@@ -109,7 +109,7 @@ class TaskEditorPage(QWidget):
         self._copy_id_btn.clicked.connect(self._copy_task_id)
         id_bar.addWidget(self._copy_id_btn)
 
-        self._cmd_hint_btn = QPushButton("⌨ 命令行")
+        self._cmd_hint_btn = QPushButton(tr("task.cmd_btn"))
         self._cmd_hint_btn.setFixedSize(64, 20)
         self._cmd_hint_btn.setStyleSheet(
             "QPushButton { font-size:10px; border-radius:3px; padding:1px 6px; "
@@ -179,8 +179,8 @@ class TaskEditorPage(QWidget):
     def _copy_task_id(self):
         """复制任务 ID 到剪贴板"""
         QApplication.clipboard().setText(self.task.id)
-        self._copy_id_btn.setText("✓")
-        QTimer.singleShot(1500, lambda: self._copy_id_btn.setText("复制"))
+        self._copy_id_btn.setText(tr("task.copy_id_done"))
+        QTimer.singleShot(1500, lambda: self._copy_id_btn.setText(tr("task.copy_id_btn")))
 
     def _show_cmd_hint(self):
         """弹窗展示命令行调用方式"""
@@ -195,13 +195,13 @@ class TaskEditorPage(QWidget):
             cmd_display = cmd_text
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("命令行调用")
+        dlg.setWindowTitle(tr("task.cmd_dlg_title"))
         dlg.setMinimumWidth(460)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(10)
         lay.setContentsMargins(20, 16, 20, 16)
 
-        title = QLabel(f"⌨️  命令行运行任务「{self.task.name}」")
+        title = QLabel(tr("task.cmd_dlg_heading", name=self.task.name))
         title.setStyleSheet("font-weight: bold; font-size: 13px;")
         lay.addWidget(title)
 
@@ -211,8 +211,8 @@ class TaskEditorPage(QWidget):
         lay.addWidget(sep)
 
         for label, text, full in [
-            ("任务 ID：", self.task.id, self.task.id),
-            ("命令：", cmd_display, cmd_text),
+            (tr("task.cmd_task_id_label"), self.task.id, self.task.id),
+            (tr("task.cmd_label"), cmd_display, cmd_text),
         ]:
             row_lbl = QLabel(label)
             row_lbl.setStyleSheet("font-size: 11px; color: #6C7086;")
@@ -226,26 +226,22 @@ class TaskEditorPage(QWidget):
             )
             row.addWidget(edit)
             _full = full  # 闭包捕获
-            _btn  = QPushButton("复制")
+            _btn  = QPushButton(tr("task.cmd_copy_btn"))
             _btn.setFixedWidth(52)
             def _copy(_b=_btn, _t=_full):
                 QApplication.clipboard().setText(_t)
-                _b.setText("✓")
-                QTimer.singleShot(1500, lambda: _b.setText("复制"))
+                _b.setText(tr("task.cmd_copy_done"))
+                QTimer.singleShot(1500, lambda: _b.setText(tr("task.cmd_copy_btn")))
             _btn.clicked.connect(_copy)
             row.addWidget(_btn)
             lay.addLayout(row)
 
-        hint = QLabel(
-            "💡 将 AutoFlow 安装目录加入系统 PATH 后，\n"
-            "可在任意位置的命令行中直接使用 <code>AutoFlow --run-task &lt;id&gt;</code>"
-        )
-        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint = QLabel(tr("task.cmd_hint"))
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #6C7086; font-size: 11px;")
         lay.addWidget(hint)
 
-        close_btn = QPushButton("关闭")
+        close_btn = QPushButton(tr("task.cmd_close_btn"))
         close_btn.setObjectName("btn_primary")
         close_btn.clicked.connect(dlg.accept)
         btn_row = QHBoxLayout()
@@ -262,6 +258,9 @@ class TaskEditorPage(QWidget):
         if not self._running:
             self._run_btn.setText(tr("task.run_btn"))
         self._stop_btn.setText(tr("task.stop_btn"))
+        self._id_prefix_lbl.setText(tr("task.id_prefix"))
+        self._copy_id_btn.setText(tr("task.copy_id_btn"))
+        self._cmd_hint_btn.setText(tr("task.cmd_btn"))
         # 传递给子组件
         self._trigger_editor.retranslate()
         self._block_editor.retranslate()

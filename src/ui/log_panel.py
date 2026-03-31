@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QFrame
 )
 from datetime import datetime
+from ..i18n import tr, add_language_observer, remove_language_observer
 
 
 class LogPanel(QWidget):
@@ -26,6 +27,15 @@ class LogPanel(QWidget):
         self._ts_color  = "#888888"
         self._msg_color = "#CCCCCC"
         self._build_ui()
+        add_language_observer(self._retranslate)
+
+    def _retranslate(self):
+        lbl = self.findChild(QLabel, "log_title")
+        if lbl:
+            lbl.setText(tr("log.title"))
+        btn = self.findChild(QPushButton, "log_clear_btn")
+        if btn:
+            btn.setText(tr("log.clear"))
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -40,12 +50,12 @@ class LogPanel(QWidget):
         bl.setContentsMargins(10, 0, 8, 0)
         bl.setSpacing(0)
 
-        lbl = QLabel("📋  运行日志")
+        lbl = QLabel(tr("log.title"))
         lbl.setObjectName("log_title")
         bl.addWidget(lbl)
         bl.addStretch()
 
-        clear_btn = QPushButton("清空")
+        clear_btn = QPushButton(tr("log.clear"))
         clear_btn.setObjectName("log_clear_btn")
         clear_btn.clicked.connect(self.clear)
         bl.addWidget(clear_btn)

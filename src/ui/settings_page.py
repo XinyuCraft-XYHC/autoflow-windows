@@ -1827,65 +1827,30 @@ class SettingsPage(QWidget):
 
         # 如果语言发生了变化，通知用户需要重启
         if old_lang != c.language:
-            import os, pathlib, subprocess, sys, time
-            
-            # 创建重启脚本（Bat 脚本）
-            exe_path = None
-            if hasattr(sys, 'frozen') and getattr(sys, '_MEIPASS', None):
-                # frozen (打包后的环境)
-                exe_path = sys.executable
-            else:
-                # 开发环境
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                exe_path = os.path.join(project_root, 'main.py')
-            
-            # 创建重启脚本
-            script_content = f'''@echo off
-echo 正在停止 AutoFlow 进程...
-timeout /t 2 /nobreak >nul
-taskkill /f /im "AutoFlow.exe" 2>nul
-taskkill /f /im "python.exe" 2>nul
-
-echo 启动 AutoFlow...
-start "" "{exe_path}"
-echo 重启完成，窗口即将关闭...
-timeout /t 2 /nobreak >nul
-'''
-            
-            # 获取重启脚本路径
-            if hasattr(sys, 'frozen'):
-                script_dir = os.path.dirname(sys.executable)
-            else:
-                script_dir = os.getcwd()
-            
-            restart_script_path = os.path.join(script_dir, 'restart_autoflow.bat')
-            
-            try:
-                with open(restart_script_path, 'w', encoding='gbk') as f:
-                    f.write(script_content)
-                script_created = True
-                script_msg = f"\n\n重启脚本已创建：\n{restart_script_path}"
-            except Exception as e:
-                script_created = False
-                script_msg = f"\n\n创建重启脚本失败：{e}"
-            
-            # 显示重启提示
-            restart_msg = _tr("settings.restart_msg")
-            if script_created:
-                restart_msg += _tr("settings.restart_msg_script")
-            
             from PyQt6.QtWidgets import QMessageBox
+            from PyQt6.QtCore import QTimer
             reply = QMessageBox.warning(
                 self,
                 _tr("settings.restart_title"),
-                restart_msg + script_msg,
+                _tr("settings.restart_msg"),
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Ok
             )
             
             if reply == QMessageBox.StandardButton.Ok:
-                # 退出应用
-                QTimer.singleShot(2000, lambda: self.parent().parent().close() if self.parent() and self.parent().parent() else sys.exit(0))
+                # 找到主窗口，走 _quit_app() 完整退出流程（停止触发器/runner/热键，再 QApplication.quit）
+                def _do_quit():
+                    from PyQt6.QtWidgets import QApplication
+                    main_win = None
+                    for w in QApplication.topLevelWidgets():
+                        if hasattr(w, '_quit_app'):
+                            main_win = w
+                            break
+                    if main_win is not None:
+                        main_win._quit_app()
+                    else:
+                        QApplication.quit()
+                QTimer.singleShot(2000, _do_quit)
         
         self._apply_autostart(c.auto_start_enabled)
         self.config_changed.emit(c)

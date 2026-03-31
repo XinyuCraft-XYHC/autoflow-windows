@@ -128,13 +128,13 @@ class TriggerCard(QFrame):
             QMenu::item {{padding: 6px 16px; border-radius: 4px;}}
             QMenu::item:selected {{background: {'#45475A' if dark else '#E0E0E0'};}}
         """)
-        act_edit   = menu.addAction("✏  编辑触发器")
-        act_copy   = menu.addAction("⎘  复制触发器")
+        act_edit   = menu.addAction(tr("trigger.ctx.edit"))
+        act_copy   = menu.addAction(tr("trigger.ctx.copy"))
         menu.addSeparator()
-        act_up     = menu.addAction("↑  上移")
-        act_down   = menu.addAction("↓  下移")
+        act_up     = menu.addAction(tr("trigger.ctx.move_up"))
+        act_down   = menu.addAction(tr("trigger.ctx.move_down"))
         menu.addSeparator()
-        act_delete = menu.addAction("🗑  删除触发器")
+        act_delete = menu.addAction(tr("trigger.ctx.delete"))
         act_delete.setProperty("danger", True)
 
         action = menu.exec(self.mapToGlobal(pos))
@@ -279,19 +279,19 @@ class TriggerCard(QFrame):
         if tt == "schedule":
             st = p.get("schedule_type", "interval")
             if st == "interval":
-                return f"每 {p.get('interval_sec','?')} 秒"
+                return tr("trigger.summary.interval", sec=p.get('interval_sec','?'))
             elif st == "daily":
-                return f"每天 {p.get('time_of_day','?')}"
+                return tr("trigger.summary.daily", time=p.get('time_of_day','?'))
             elif st == "weekly":
-                return f"每周{p.get('weekday','?')} {p.get('time_of_day','?')}"
+                return tr("trigger.summary.weekly", day=p.get('weekday','?'), time=p.get('time_of_day','?'))
             elif st == "once":
-                return f"一次性: {p.get('once_datetime','?')}"
+                return tr("trigger.summary.once", dt=p.get('once_datetime','?'))
         elif tt == "hotkey":
-            return f"快捷键: {p.get('hotkey', '')}"
+            return tr("trigger.summary.hotkey", key=p.get('hotkey', ''))
         elif tt == "mouse_click":
             btn = p.get("button", "middle")
             mod = p.get("modifier", "")
-            return f"{mod}+{btn}点击" if mod else f"{btn}键点击"
+            return tr("trigger.summary.mouse_click_mod", mod=mod, btn=btn) if mod else tr("trigger.summary.mouse_click", btn=btn)
         elif tt in ("process_start", "process_stop"):
             return p.get("name", "")
         elif tt in ("window_appear", "window_close"):
@@ -300,57 +300,74 @@ class TriggerCard(QFrame):
             return p.get("path", "")
         elif tt == "email_received":
             parts = []
-            if p.get("sender"):  parts.append(f"来自: {p['sender']}")
-            if p.get("subject"): parts.append(f"主题含: {p['subject']}")
-            return "  ".join(parts) or "任意新邮件"
+            if p.get("sender"):  parts.append(tr("trigger.summary.email_from", sender=p['sender']))
+            if p.get("subject"): parts.append(tr("trigger.summary.email_subject", subject=p['subject']))
+            return "  ".join(parts) or tr("trigger.summary.email_any")
         elif tt == "clipboard_match":
             text = p.get("text", "")
             mode = p.get("match_mode", "contains")
             if text:
                 mode_label = {
-                    "contains":   "包含",
-                    "exact":      "等于",
-                    "startswith": "开头为",
-                    "endswith":   "结尾为",
-                    "wildcard":   "通配符",
+                    "contains":   tr("trigger.summary.clip_contains"),
+                    "exact":      tr("trigger.summary.clip_exact"),
+                    "startswith": tr("trigger.summary.clip_startswith"),
+                    "endswith":   tr("trigger.summary.clip_endswith"),
+                    "wildcard":   tr("trigger.summary.clip_wildcard"),
                 }.get(mode, mode)
-                return f"{mode_label}: {text[:30]}"
-            return "任意剪贴板内容变化"
+                return tr("trigger.summary.clipboard_contains", mode=mode_label, text=text[:30])
+            return tr("trigger.summary.clipboard_any")
         elif tt == "cpu_high":
-            return f"CPU > {p.get('threshold','?')}% 持续 {p.get('duration','?')}s"
+            return tr("trigger.summary.cpu", val=p.get('threshold','?'), dur=p.get('duration','?'))
         elif tt == "memory_high":
-            return f"内存 > {p.get('threshold','?')}%"
+            return tr("trigger.summary.memory", val=p.get('threshold','?'))
         elif tt == "disk_full":
-            d = p.get('drive','') or '所有磁盘'
-            return f"{d} 剩余 < {p.get('threshold','?')}GB"
+            d = p.get('drive','') or tr("trigger.summary.disk_all", val=p.get('threshold','?'))
+            if p.get('drive',''):
+                return tr("trigger.summary.disk", drive=d, val=p.get('threshold','?'))
+            return d
         elif tt == "battery_change":
-            ev = {"low":"低电量","critical":"极低","charging":"开始充电",
-                  "discharging":"开始放电","full":"充满"}.get(p.get("event","low"), "")
-            return f"{ev} (阈值 {p.get('threshold','?')}%)"
+            ev_map = {
+                "low":         tr("trigger.summary.battery_low"),
+                "critical":    tr("trigger.summary.battery_critical"),
+                "charging":    tr("trigger.summary.battery_charging"),
+                "discharging": tr("trigger.summary.battery_discharging"),
+                "full":        tr("trigger.summary.battery_full"),
+            }
+            ev = ev_map.get(p.get("event","low"), "")
+            return tr("trigger.summary.battery", ev=ev, val=p.get('threshold','?'))
         elif tt == "idle_detect":
-            return f"空闲 {p.get('idle_sec','?')}s"
+            return tr("trigger.summary.idle", sec=p.get('idle_sec','?'))
         elif tt == "window_focus":
-            return p.get("title", "") or "任意窗口获得焦点"
+            return p.get("title", "") or tr("trigger.summary.window_focus_any")
         elif tt == "time_range":
-            return f"{p.get('start_time','?')} ~ {p.get('end_time','?')} 每{p.get('interval_sec','?')}s"
+            return tr("trigger.summary.time_range",
+                      start=p.get('start_time','?'), end=p.get('end_time','?'), sec=p.get('interval_sec','?'))
         elif tt == "network_change":
             ev = p.get("event", "any")
-            label_map = {"connected": "网络连接时", "disconnected": "断网时", "any": "网络状态变化"}
+            label_map = {
+                "connected":    tr("trigger.summary.network_connected"),
+                "disconnected": tr("trigger.summary.network_disconnected"),
+                "any":          tr("trigger.summary.network_any"),
+            }
             return label_map.get(ev, ev)
         elif tt == "wifi_ssid":
-            ev = "连接" if p.get("event") == "connected" else "断开"
-            return f"{ev}: {p.get('ssid','')}"
+            ev = tr("trigger.summary.wifi_connect", ssid=p.get('ssid','')) \
+                 if p.get("event") == "connected" \
+                 else tr("trigger.summary.wifi_disconnect", ssid=p.get('ssid',''))
+            return ev
         elif tt == "ping_latency":
             host  = p.get("host", "")
             thr   = p.get("threshold_ms", "")
-            d_map = {"above": "延迟>", "below": "延迟<", "timeout": "超时时触发"}
-            direc = d_map.get(p.get("direction", "above"), "")
-            if p.get("direction") == "timeout":
-                return f"{host} {direc}"
-            return f"{host} {direc}{thr}ms 每{p.get('interval_sec','?')}s"
+            direction = p.get("direction", "above")
+            if direction == "timeout":
+                return tr("trigger.summary.ping_timeout", host=host)
+            elif direction == "above":
+                return tr("trigger.summary.ping_above", host=host, ms=thr, sec=p.get('interval_sec','?'))
+            else:
+                return tr("trigger.summary.ping_below", host=host, ms=thr, sec=p.get('interval_sec','?'))
         elif tt == "system_boot":
             delay = p.get("delay_sec", 30)
-            return f"开机后延迟 {delay}s 触发"
+            return tr("trigger.summary.boot", sec=delay)
         summary = self.trigger.comment or ""
         # 长度限制
         if len(summary) > 55:
@@ -596,7 +613,7 @@ class TriggerListWidget(QWidget):
         # 多选按钮
         self._multiselect_btn = QPushButton("☑")
         self._multiselect_btn.setObjectName("btn_flat")
-        self._multiselect_btn.setToolTip("多选模式 (Ctrl+点击)")
+        self._multiselect_btn.setToolTip(tr("trigger.multiselect_tip"))
         self._multiselect_btn.setFixedSize(28, 28)
         self._multiselect_btn.clicked.connect(self._toggle_multiselect_mode)
         toolbar.addWidget(self._multiselect_btn)
@@ -618,23 +635,23 @@ class TriggerListWidget(QWidget):
         self._multiselect_toolbar = QHBoxLayout()
         self._multiselect_toolbar.setContentsMargins(0, 0, 0, 6)
         self._multiselect_toolbar.setSpacing(4)
-        self._select_all_btn = QPushButton("全选")
+        self._select_all_btn = QPushButton(tr("trigger.btn.select_all"))
         self._select_all_btn.setObjectName("btn_flat")
         self._select_all_btn.setFixedHeight(24)
         self._select_all_btn.clicked.connect(self._select_all)
         self._multiselect_toolbar.addWidget(self._select_all_btn)
-        self._deselect_btn = QPushButton("取消全选")
+        self._deselect_btn = QPushButton(tr("trigger.btn.deselect_all"))
         self._deselect_btn.setObjectName("btn_flat")
         self._deselect_btn.setFixedHeight(24)
         self._deselect_btn.clicked.connect(self._deselect_all)
         self._multiselect_toolbar.addWidget(self._deselect_btn)
         self._multiselect_toolbar.addStretch()
-        self._copy_sel_btn = QPushButton("⎘ 复制")
+        self._copy_sel_btn = QPushButton(tr("trigger.btn.copy_selected"))
         self._copy_sel_btn.setObjectName("btn_flat")
         self._copy_sel_btn.setFixedHeight(24)
         self._copy_sel_btn.clicked.connect(self._copy_selected)
         self._multiselect_toolbar.addWidget(self._copy_sel_btn)
-        self._del_sel_btn = QPushButton("🗑 删除")
+        self._del_sel_btn = QPushButton(tr("trigger.btn.delete_selected"))
         self._del_sel_btn.setObjectName("btn_danger")
         self._del_sel_btn.setFixedHeight(24)
         self._del_sel_btn.clicked.connect(self._delete_selected)
@@ -982,12 +999,21 @@ class TriggerListWidget(QWidget):
             categories.setdefault(cat, []).append((tt, info))
 
         CAT_ORDER = ["基础", "应用&进程", "文件&系统", "系统资源", "网络", "数据", "其他"]
+        CAT_I18N = {
+            "基础": tr("trigger.cat.basic"),
+            "应用&进程": tr("trigger.cat.app"),
+            "文件&系统": tr("trigger.cat.file"),
+            "系统资源": tr("trigger.cat.resource"),
+            "网络": tr("trigger.cat.network"),
+            "数据": tr("trigger.cat.data"),
+            "其他": tr("trigger.cat.other"),
+        }
         sorted_cats = sorted(categories.keys(),
                              key=lambda c: CAT_ORDER.index(c) if c in CAT_ORDER else 99)
 
         for cat in sorted_cats:
             items = categories[cat]
-            sub = menu.addMenu(f"  {cat}")
+            sub = menu.addMenu(f"  {CAT_I18N.get(cat, cat)}")
             for tt, info in items:
                 action = sub.addAction(f"{info['icon']}  {info['label']}")
                 action.triggered.connect(lambda checked, t=tt: self._add_trigger(t))

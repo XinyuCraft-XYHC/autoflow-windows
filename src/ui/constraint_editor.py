@@ -14,9 +14,35 @@ from PyQt6.QtWidgets import (
 from typing import List
 
 from ..engine.models import Constraint
+from ..i18n import tr, add_language_observer, remove_language_observer
 
 
 # 可选的约束条件类型（与 condition_type 一致）
+# key 列表保持不变，label 由 tr() 动态获取
+CONSTRAINT_TYPE_KEYS = [
+    "always_true",
+    "process_exists",
+    "window_exists",
+    "file_exists",
+    "variable_equals",
+    "variable_gt",
+    "variable_lt",
+    "variable_contains",
+    "clipboard_contains",
+    "internet_connected",
+    "network_connected",
+    "ping_latency_gt",
+    "ping_latency_lt",
+    "capslock_on",
+    "cpu_above",
+    "memory_above",
+    "battery_below",
+    "battery_charging",
+    "time_between",
+    "day_of_week",
+]
+
+# 保留原始硬编码字典用于向后兼容（其他模块可能 import CONSTRAINT_TYPES）
 CONSTRAINT_TYPES = {
     "always_true":       "始终为真（不限制）",
     "process_exists":    "进程存在",
@@ -29,34 +55,15 @@ CONSTRAINT_TYPES = {
     "clipboard_contains":"剪贴板包含",
     "internet_connected":"已连接互联网",
     "network_connected": "网络已连接",
-    "ping_latency_gt":   "Ping延迟大于(ms) [target=主机 value=ms]",
-    "ping_latency_lt":   "Ping延迟小于(ms) [target=主机 value=ms]",
+    "ping_latency_gt":   "Ping延迟大于(ms)",
+    "ping_latency_lt":   "Ping延迟小于(ms)",
     "capslock_on":       "大写锁定已开启",
-    "cpu_above":         "CPU占用超过(%) [target=阈值]",
-    "memory_above":      "内存占用超过(%) [target=阈值]",
-    "battery_below":     "电池低于(%) [target=阈值]",
+    "cpu_above":         "CPU占用超过(%)",
+    "memory_above":      "内存占用超过(%)",
+    "battery_below":     "电池低于(%)",
     "battery_charging":  "正在充电",
-    "time_between":      "时间在范围内 [target=HH:MM value=HH:MM]",
-    "day_of_week":       "今天是指定星期 [target=1-7,逗号分隔]",
-}
-
-# 目标输入框标签（随类型变化）
-_TARGET_LABELS = {
-    "process_exists":    "进程名",
-    "window_exists":     "窗口标题",
-    "file_exists":       "路径",
-    "variable_equals":   "变量名",
-    "variable_gt":       "变量名",
-    "variable_lt":       "变量名",
-    "variable_contains": "变量名",
-    "clipboard_contains":"包含文本",
-    "ping_latency_gt":   "主机",
-    "ping_latency_lt":   "主机",
-    "cpu_above":         "阈值(%)",
-    "memory_above":      "阈值(%)",
-    "battery_below":     "阈值(%)",
-    "time_between":      "开始时间",
-    "day_of_week":       "星期(1-7)",
+    "time_between":      "时间在范围内",
+    "day_of_week":       "今天是指定星期",
 }
 
 _FLAT_BTN_STYLE = """
@@ -70,29 +77,46 @@ _FLAT_BTN_STYLE = """
 """
 
 
+def _get_constraint_type_label(key: str) -> str:
+    """获取约束类型的国际化标签"""
+    return tr(f"constraint.type.{key}", default=CONSTRAINT_TYPES.get(key, key))
+
+
 # ─── 进程选择列表对话框 ─────────────────────────────────────────────────────
 
 class _ProcessListDialog(QDialog):
     """弹出当前运行中的进程列表，让用户选择一个"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("选择进程")
+        self.setWindowTitle(tr("constraint.proc_dlg_title"))
         self.setMinimumSize(380, 480)
         self.setModal(True)
         self.selected_name = ""
         self._build_ui()
         self._load()
+        add_language_observer(self._retranslate)
+
+    def _retranslate(self):
+        self.setWindowTitle(tr("constraint.proc_dlg_title"))
+        hint = self.findChild(QLabel, "proc_dlg_hint")
+        if hint:
+            hint.setText(tr("constraint.proc_dlg_hint"))
+        flt = self.findChild(QLineEdit, "proc_filter")
+        if flt:
+            flt.setPlaceholderText(tr("constraint.proc_filter_ph"))
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        hint = QLabel("双击或选中后点确认，填入进程名（含.exe）")
+        hint = QLabel(tr("constraint.proc_dlg_hint"))
+        hint.setObjectName("proc_dlg_hint")
         hint.setStyleSheet("color: #6C7086; font-size: 11px;")
         layout.addWidget(hint)
 
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("筛选进程名…")
+        self._filter.setObjectName("proc_filter")
+        self._filter.setPlaceholderText(tr("constraint.proc_filter_ph"))
         self._filter.textChanged.connect(self._apply_filter)
         layout.addWidget(self._filter)
 
@@ -147,6 +171,32 @@ class ConstraintItemWidget(QFrame):
         self.constraint = constraint
         self._pick_countdown = 3
         self._build_ui()
+        add_language_observer(self._retranslate)
+
+    def _retranslate(self):
+        """语言切换时重新翻译各控件文本"""
+        # 重建 type combo 文本
+        ct = self._type_combo.currentData()
+        self._type_combo.blockSignals(True)
+        self._type_combo.clear()
+        for key in CONSTRAINT_TYPE_KEYS:
+            self._type_combo.addItem(_get_constraint_type_label(key), key)
+        # 追加插件扩展条件
+        try:
+            from ..plugin_manager import PluginManager
+            for cdef in PluginManager.instance().get_plugin_conditions(scope="constraint"):
+                ctype = cdef.get("type", "")
+                clabel = cdef.get("label", ctype)
+                icon   = cdef.get("icon", "🔌")
+                self._type_combo.addItem(f"{icon} {clabel}（插件）", ctype)
+        except Exception:
+            pass
+        all_types = [self._type_combo.itemData(i) for i in range(self._type_combo.count())]
+        idx = all_types.index(ct) if ct in all_types else 0
+        self._type_combo.setCurrentIndex(idx)
+        self._type_combo.blockSignals(False)
+        # 更新其余静态文本
+        self._update_visibility()
 
     def _build_ui(self):
         self.setObjectName("constraint_item")
@@ -178,8 +228,8 @@ class ConstraintItemWidget(QFrame):
 
         self._type_combo = QComboBox()
         self._type_combo.setMinimumWidth(200)
-        for key, label in CONSTRAINT_TYPES.items():
-            self._type_combo.addItem(label, key)
+        for key in CONSTRAINT_TYPE_KEYS:
+            self._type_combo.addItem(_get_constraint_type_label(key), key)
         # ── 追加插件扩展条件 ──
         try:
             from ..plugin_manager import PluginManager
@@ -215,7 +265,7 @@ class ConstraintItemWidget(QFrame):
         self._input_row.setSpacing(4)
 
         # 目标标签
-        self._target_label = QLabel("目标：")
+        self._target_label = QLabel(tr("constraint.target_label"))
         self._target_label.setFixedWidth(52)
         self._target_label.setStyleSheet("color: #A6ADC8; font-size: 11px;")
         self._target_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -223,7 +273,7 @@ class ConstraintItemWidget(QFrame):
 
         # 目标输入框
         self._target = QLineEdit(self.constraint.target)
-        self._target.setPlaceholderText("目标（进程名/窗口标题/文件/变量名）")
+        self._target.setPlaceholderText(tr("constraint.target_ph"))
         self._target.textChanged.connect(self._on_changed)
         self._input_row.addWidget(self._target, 1)
 
@@ -234,14 +284,14 @@ class ConstraintItemWidget(QFrame):
         self._input_row.addLayout(self._aux_container)
 
         # 比较值
-        self._value_label = QLabel("值：")
+        self._value_label = QLabel(tr("constraint.value_label"))
         self._value_label.setFixedWidth(26)
         self._value_label.setStyleSheet("color: #A6ADC8; font-size: 11px;")
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._input_row.addWidget(self._value_label)
 
         self._value = QLineEdit(self.constraint.value)
-        self._value.setPlaceholderText("比较值")
+        self._value.setPlaceholderText(tr("constraint.value_ph"))
         self._value.setFixedWidth(100)
         self._value.textChanged.connect(self._on_changed)
         self._input_row.addWidget(self._value)
@@ -287,37 +337,38 @@ class ConstraintItemWidget(QFrame):
         self._value.setVisible(needs_value)
 
         # 动态标签
-        label = _TARGET_LABELS.get(ct, "目标")
+        label = tr(f"constraint.target.{ct}", default=tr("constraint.ph.default"))
         self._target_label.setText(f"{label}：")
 
         # 更新 placeholder
-        placeholders = {
-            "process_exists": "进程名，如 notepad.exe",
-            "window_exists": "窗口标题，支持 * 通配符",
-            "file_exists": "文件或目录完整路径",
-            "variable_equals": "变量名",
-            "variable_gt": "变量名",
-            "variable_lt": "变量名",
-            "variable_contains": "变量名",
-            "clipboard_contains": "剪贴板包含的文本",
-            "ping_latency_gt": "主机IP/域名",
-            "ping_latency_lt": "主机IP/域名",
-            "cpu_above": "CPU阈值，如 80",
-            "memory_above": "内存阈值，如 90",
-            "battery_below": "电量阈值，如 20",
-            "time_between": "开始时间，如 09:00",
-            "day_of_week": "星期数1-7，如 1,2,3,4,5",
+        ph_map = {
+            "process_exists":    tr("constraint.ph.process_exists"),
+            "window_exists":     tr("constraint.ph.window_exists"),
+            "file_exists":       tr("constraint.ph.file_exists"),
+            "variable_equals":   tr("constraint.ph.variable"),
+            "variable_gt":       tr("constraint.ph.variable"),
+            "variable_lt":       tr("constraint.ph.variable"),
+            "variable_contains": tr("constraint.ph.variable"),
+            "clipboard_contains":tr("constraint.ph.clipboard_contains"),
+            "ping_latency_gt":   tr("constraint.ph.ping"),
+            "ping_latency_lt":   tr("constraint.ph.ping"),
+            "cpu_above":         tr("constraint.ph.cpu"),
+            "memory_above":      tr("constraint.ph.memory"),
+            "battery_below":     tr("constraint.ph.battery"),
+            "time_between":      tr("constraint.ph.time_start"),
+            "day_of_week":       tr("constraint.ph.day"),
         }
-        self._target.setPlaceholderText(placeholders.get(ct, "目标"))
-        self._value.setPlaceholderText({
-            "variable_equals": "比较值",
-            "variable_gt": "比较值",
-            "variable_lt": "比较值",
-            "variable_contains": "包含文本",
-            "ping_latency_gt": "延迟阈值(ms)",
-            "ping_latency_lt": "延迟阈值(ms)",
-            "time_between": "结束时间，如 18:00",
-        }.get(ct, "比较值"))
+        self._target.setPlaceholderText(ph_map.get(ct, tr("constraint.ph.default")))
+        val_ph_map = {
+            "variable_equals":   tr("constraint.ph.compare"),
+            "variable_gt":       tr("constraint.ph.compare"),
+            "variable_lt":       tr("constraint.ph.compare"),
+            "variable_contains": tr("constraint.ph.contains_text"),
+            "ping_latency_gt":   tr("constraint.ph.ping_ms"),
+            "ping_latency_lt":   tr("constraint.ph.ping_ms"),
+            "time_between":      tr("constraint.ph.time_end"),
+        }
+        self._value.setPlaceholderText(val_ph_map.get(ct, tr("constraint.ph.compare")))
 
         # 重建辅助按钮
         self._clear_aux_btns()
@@ -326,21 +377,26 @@ class ConstraintItemWidget(QFrame):
     def _rebuild_aux_btns(self, ct: str):
         """根据条件类型添加对应的辅助按钮"""
         if ct == "file_exists":
-            self._add_aux_btn("📁 选择", "通过资源管理器选择文件或目录",
+            self._add_aux_btn(tr("constraint.aux.pick_file"),
+                              tr("constraint.aux.pick_file_tip"),
                               self._pick_file_or_dir)
 
         elif ct == "process_exists":
-            self._add_aux_btn("🖱 点选", "最小化窗口，3秒后读取前台窗口进程名",
+            self._add_aux_btn(tr("constraint.aux.pick_proc"),
+                              tr("constraint.aux.pick_proc_tip"),
                               self._start_pick_process)
-            self._add_aux_btn("📋 进程列表", "从运行中的进程列表中选择",
+            self._add_aux_btn(tr("constraint.aux.proc_list"),
+                              tr("constraint.aux.proc_list_tip"),
                               self._show_process_list)
 
         elif ct == "window_exists":
-            self._add_aux_btn("🖱 点选", "最小化窗口，3秒后读取前台窗口标题",
+            self._add_aux_btn(tr("constraint.aux.pick_win"),
+                              tr("constraint.aux.pick_win_tip"),
                               self._start_pick_window)
 
         elif ct in ("ping_latency_gt", "ping_latency_lt"):
-            self._add_aux_btn("🌐 本机", "填入 127.0.0.1（本机测试）",
+            self._add_aux_btn(tr("constraint.aux.localhost"),
+                              "127.0.0.1",
                               lambda: self._target.setText("127.0.0.1"))
 
         elif ct in ("variable_equals", "variable_gt", "variable_lt", "variable_contains"):
@@ -353,24 +409,23 @@ class ConstraintItemWidget(QFrame):
 
     def _pick_file_or_dir(self):
         """弹出资源管理器，让用户选择文件或目录"""
-        # 先问用户是要选文件还是目录
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu { background: #1E1E2E; color: #CDD6F4; border: 1px solid #45475A; }
             QMenu::item:selected { background: #313244; }
         """)
-        act_file = menu.addAction("📄  选择文件")
-        act_dir  = menu.addAction("📂  选择目录")
+        act_file = menu.addAction(tr("constraint.menu.file"))
+        act_dir  = menu.addAction(tr("constraint.menu.dir"))
         btn = self._aux_btns[0] if self._aux_btns else None
         pos = btn.mapToGlobal(btn.rect().bottomLeft()) if btn else self.mapToGlobal(self.rect().center())
         chosen = menu.exec(pos)
         if chosen == act_file:
-            path, _ = QFileDialog.getOpenFileName(self, "选择文件", "", "所有文件 (*)")
+            path, _ = QFileDialog.getOpenFileName(self, tr("constraint.file_dlg_title"), "", "")
             if path:
                 self._target.setText(path)
         elif chosen == act_dir:
-            path = QFileDialog.getExistingDirectory(self, "选择目录", "")
+            path = QFileDialog.getExistingDirectory(self, tr("constraint.dir_dlg_title"), "")
             if path:
                 self._target.setText(path)
 
@@ -412,7 +467,7 @@ class ConstraintItemWidget(QFrame):
                 pass
             if pick_btn:
                 pick_btn.setEnabled(True)
-                pick_btn.setText("🖱 点选")
+                pick_btn.setText(tr("constraint.aux.pick_win"))
             if hasattr(top, 'showNormal'):
                 top.showNormal()
             if hasattr(top, 'activateWindow'):
@@ -457,7 +512,7 @@ class ConstraintItemWidget(QFrame):
                 pass
             if pick_btn:
                 pick_btn.setEnabled(True)
-                pick_btn.setText("🖱 点选")
+                pick_btn.setText(tr("constraint.aux.pick_proc"))
             if hasattr(top, 'showNormal'):
                 top.showNormal()
             if hasattr(top, 'activateWindow'):
@@ -496,6 +551,18 @@ class ConstraintListWidget(QWidget):
         self._constraints: List[Constraint] = list(constraints)
         self._item_widgets: List[ConstraintItemWidget] = []
         self._build_ui()
+        add_language_observer(self._retranslate)
+
+    def _retranslate(self):
+        lbl = self.findChild(QLabel, "constraint_title_lbl")
+        if lbl:
+            lbl.setText(tr("constraint.title"))
+        hint = self.findChild(QLabel, "constraint_hint_lbl")
+        if hint:
+            hint.setText(tr("constraint.hint"))
+        btn = self.findChild(QPushButton, "constraint_add_btn")
+        if btn:
+            btn.setText(tr("constraint.add_btn"))
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -505,19 +572,21 @@ class ConstraintListWidget(QWidget):
         # 标题行
         header = QHBoxLayout()
         header.setSpacing(6)
-        title_lbl = QLabel("🔒 约束条件")
+        title_lbl = QLabel(tr("constraint.title"))
+        title_lbl.setObjectName("constraint_title_lbl")
         title_lbl.setStyleSheet(
             "color: #89B4FA; font-size: 11px; font-weight: bold; letter-spacing: 1px;"
         )
         header.addWidget(title_lbl)
 
-        hint_lbl = QLabel("（所有条件均满足时才执行，留空=不限制）")
+        hint_lbl = QLabel(tr("constraint.hint"))
+        hint_lbl.setObjectName("constraint_hint_lbl")
         hint_lbl.setStyleSheet("color: #6C7086; font-size: 10px;")
         header.addWidget(hint_lbl)
         header.addStretch()
 
-        add_btn = QPushButton("＋ 添加约束")
-        add_btn.setObjectName("btn_flat")
+        add_btn = QPushButton(tr("constraint.add_btn"))
+        add_btn.setObjectName("constraint_add_btn")
         add_btn.setFixedHeight(24)
         add_btn.setStyleSheet("""
             QPushButton { background: #313244; border: 1px solid #45475A;

@@ -1270,10 +1270,7 @@ class AppConfig:
     minimize_to_tray: bool = True
     show_run_log: bool = True
     minimize_on_run: bool = False      # 任务运行时最小化主窗口
-    # 主题扩展（自定义背景/字体/配色）
-    theme_bg_image: str = ""           # 背景图/GIF 路径（空=不使用）
-    theme_bg_opacity: float = 0.15    # 背景图透明度 0.0-1.0
-    theme_bg_mode: str = "fill"       # fill/contain/center/tile
+    # 主题扩展（自定义字体/配色）
     theme_font_family: str = ""        # 自定义字体名称（空=主题默认）
     theme_font_size: int = 0           # 自定义字体大小（0=主题默认13px）
     theme_palette_override: dict = field(default_factory=dict)  # 覆盖调色板 key-value

@@ -175,24 +175,24 @@ class HotkeyEditWidget(QWidget):
 
 # ─────────────────── 条件目标动态辅助控件 ───────────────────
 
-# 目标输入框标签（随条件类型变化）
-_COND_TARGET_LABELS = {
-    "process_exists":    "进程名",
-    "window_exists":     "窗口标题",
-    "file_exists":       "路径",
-    "file_changed":      "路径",
-    "variable_equals":   "变量名",
-    "variable_gt":       "变量名",
-    "variable_lt":       "变量名",
-    "variable_contains": "变量名",
-    "clipboard_contains":"包含文本",
-    "ping_latency_gt":   "主机",
-    "ping_latency_lt":   "主机",
-    "cpu_above":         "阈值(%)",
-    "memory_above":      "阈值(%)",
-    "battery_below":     "阈值(%)",
-    "time_between":      "开始时间",
-    "day_of_week":       "星期(1-7)",
+# 目标输入框标签（随条件类型变化），值为 i18n key
+_COND_TARGET_LABEL_KEYS = {
+    "process_exists":    "constraint.target.process_exists",
+    "window_exists":     "constraint.target.window_exists",
+    "file_exists":       "constraint.target.file_exists",
+    "file_changed":      "constraint.target.file_exists",
+    "variable_equals":   "constraint.target.variable_equals",
+    "variable_gt":       "constraint.target.variable_gt",
+    "variable_lt":       "constraint.target.variable_lt",
+    "variable_contains": "constraint.target.variable_contains",
+    "clipboard_contains":"constraint.target.clipboard_contains",
+    "ping_latency_gt":   "constraint.target.ping_latency_gt",
+    "ping_latency_lt":   "constraint.target.ping_latency_lt",
+    "cpu_above":         "constraint.target.cpu_above",
+    "memory_above":      "constraint.target.memory_above",
+    "battery_below":     "constraint.target.battery_below",
+    "time_between":      "constraint.target.time_between",
+    "day_of_week":       "constraint.target.day_of_week",
 }
 
 # 哪些类型不需要 target 输入（隐藏整行）
@@ -221,7 +221,7 @@ class ConditionTargetWidget(QWidget):
         outer.setSpacing(2)
 
         # 动态标签行（在输入行上方）
-        self._label = QLabel("进程名：")
+        self._label = QLabel(tr("constraint.target.process_exists") + "：")
         self._label.setStyleSheet("color: #A6ADC8; font-size: 11px;")
         outer.addWidget(self._label)
 
@@ -231,7 +231,7 @@ class ConditionTargetWidget(QWidget):
         row.setSpacing(4)
 
         self._edit = QLineEdit(default)
-        self._edit.setPlaceholderText("输入目标值或使用右侧辅助按钮")
+        self._edit.setPlaceholderText(tr("constraint.ph.default"))
         row.addWidget(self._edit)
 
         # 占位按钮容器（动态替换内容）
@@ -257,8 +257,8 @@ class ConditionTargetWidget(QWidget):
         self._ctype = ctype
 
         # 更新标签
-        lbl_text = _COND_TARGET_LABELS.get(ctype, "目标值")
-        self._label.setText(f"{lbl_text}：")
+        lbl_key = _COND_TARGET_LABEL_KEYS.get(ctype, "constraint.ph.default")
+        self._label.setText(f"{tr(lbl_key)}：")
 
         # 隐藏/显示整个控件（无目标类型隐藏）
         self.setVisible(ctype not in _COND_NO_TARGET)
@@ -273,22 +273,22 @@ class ConditionTargetWidget(QWidget):
 
         # 按类型添加辅助按钮
         if ctype == "process_exists":
-            self._add_btn("🖱 点选", self._start_pick_process)
-            self._add_btn("📋 进程列表", self._show_process_list)
+            self._add_btn(tr("constraint.aux.pick_proc"), self._start_pick_process)
+            self._add_btn(tr("constraint.aux.proc_list"), self._show_process_list)
         elif ctype == "window_exists":
-            self._add_btn("🖱 点选", self._start_pick_window)
+            self._add_btn(tr("constraint.aux.pick_win"), self._start_pick_window)
         elif ctype in ("file_exists", "file_changed"):
-            btn = QPushButton("📁 选择")
+            btn = QPushButton(tr("constraint.aux.pick_file"))
             btn.setObjectName("btn_flat")
             btn.setFixedHeight(26)
             btn.setStyleSheet(self._btn_style())
             menu = QMenu(btn)
-            menu.addAction("选择文件", lambda: self._pick_file())
-            menu.addAction("选择目录", lambda: self._pick_dir())
+            menu.addAction(tr("constraint.menu.file").replace("📄  ", ""), lambda: self._pick_file())
+            menu.addAction(tr("constraint.menu.dir").replace("📂  ", ""), lambda: self._pick_dir())
             btn.setMenu(menu)
             self._btn_container.addWidget(btn)
         elif ctype in ("ping_latency_gt", "ping_latency_lt"):
-            self._add_btn("🌐 本机", lambda: self._edit.setText("127.0.0.1"))
+            self._add_btn(tr("constraint.aux.localhost"), lambda: self._edit.setText("127.0.0.1"))
 
     def _btn_style(self):
         return (
@@ -633,7 +633,8 @@ class ProcessWindowListDialog(QDialog):
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        btns.button(QDialogButtonBox.StandardButton.Ok).clicked.connect(self._accept_selection)
+        # 使用 accepted 信号，_accept_selection 只存数据不调 accept()，避免 double-accept 崩溃
+        btns.accepted.connect(self._accept_selection)
         btns.rejected.connect(self.reject)
         btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("btn.ok"))
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("btn.cancel"))
@@ -729,7 +730,10 @@ class ProcessWindowListDialog(QDialog):
         name_item = self._table.item(row, 0 if self._mode != "both" else 1)
         if name_item:
             self.selected_value = name_item.text()
-        QDialog.accept(self)
+        # 不在此处调用 accept()，由 QDialogButtonBox.accepted 信号自动处理
+
+
+
 
 
 # ─────────────────── 窗口类名选择对话框 ───────────────────
@@ -745,7 +749,7 @@ class WindowClassListDialog(QDialog):
         self.selected_class = ""
         self.selected_title = ""
         self.selected_process = ""
-        self.setWindowTitle("选择窗口类名")
+        self.setWindowTitle(tr("win_class.title"))
         self.setMinimumSize(680, 420)
         self.setModal(True)
         self._all_data = []
@@ -756,17 +760,17 @@ class WindowClassListDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        hint = QLabel("选择目标窗口后点击确定，类名将被自动填入。标题和进程名也可一并回填。")
+        hint = QLabel(tr("win_class.hint"))
         hint.setStyleSheet("color: #aaa; font-size: 12px;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
         search_row = QHBoxLayout()
         self._search = QLineEdit()
-        self._search.setPlaceholderText("搜索标题 / 类名 / 进程名...")
+        self._search.setPlaceholderText(tr("win_class.filter_ph"))
         self._search.textChanged.connect(self._filter)
         search_row.addWidget(self._search)
-        refresh_btn = QPushButton("刷新")
+        refresh_btn = QPushButton(tr("btn.refresh"))
         refresh_btn.setObjectName("btn_flat")
         refresh_btn.setFixedWidth(52)
         refresh_btn.clicked.connect(self._refresh)
@@ -778,7 +782,9 @@ class WindowClassListDialog(QDialog):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setColumnCount(3)
-        self._table.setHorizontalHeaderLabels(["窗口标题", "窗口类名", "进程名"])
+        self._table.setHorizontalHeaderLabels([
+            tr("win_class.col_title"), tr("win_class.col_class"), tr("win_class.col_proc")
+        ])
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -788,12 +794,12 @@ class WindowClassListDialog(QDialog):
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        # 注意：不能把 btns.accepted 直接连 _accept_selection 再在里面调 self.accept()
-        # 否则 accepted 信号会递归触发。改用 clicked 检测按钮身份。
-        btns.button(QDialogButtonBox.StandardButton.Ok).clicked.connect(self._accept_selection)
+        # 正确做法：用 accepted 信号连 _accept_selection（只存数据），
+        # QDialogButtonBox 内置逻辑负责调用 accept()，不在 handler 里重复调用，避免双重 accept 崩溃。
+        btns.accepted.connect(self._accept_selection)
         btns.rejected.connect(self.reject)
-        btns.button(QDialogButtonBox.StandardButton.Ok).setText("确定")
-        btns.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("win_class.btn_ok"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("win_class.btn_cancel"))
         layout.addWidget(btns)
 
     def _refresh(self):
@@ -863,8 +869,7 @@ class WindowClassListDialog(QDialog):
             self.selected_title = item_title.text()
         if item_proc:
             self.selected_process = item_proc.text()
-        # 用 QDialog.accept 绕过 btns.accepted signal，避免递归触发
-        QDialog.accept(self)
+        # 不在此处调用 accept()，由 QDialogButtonBox.accepted 信号自动调用，避免双重 accept 崩溃
 
 
 # ─────────────────── 坐标选点控件 ───────────────────
@@ -1888,13 +1893,13 @@ class BlockCard(QFrame):
         bt = self.block.block_type
         parts = []
         if bt == "wait":
-            parts.append(f"{p.get('duration','?')} 秒")
+            parts.append(tr("summary.wait").format(dur=p.get('duration','?')))
         elif bt == "condition":
-            parts.append(f"若 [{p.get('condition_type','?')}] {p.get('target','')}")
+            parts.append(tr("summary.cond").format(ctype=p.get('condition_type','?'), target=p.get('target','')))
         elif bt == "loop":
             lt = p.get("loop_type","count")
-            if lt == "count":   parts.append(f"循环 {p.get('count','?')} 次")
-            elif lt == "infinite": parts.append("无限循环")
+            if lt == "count":   parts.append(tr("summary.loop_count").format(n=p.get('count','?')))
+            elif lt == "infinite": parts.append(tr("summary.loop_infinite"))
             else: parts.append(f"[{lt}] {p.get('target','')}")
         elif bt == "group":
             desc = p.get("description", "")
@@ -1918,30 +1923,40 @@ class BlockCard(QFrame):
         elif bt == "notify":
             parts.append(p.get("message",""))
         elif bt == "volume_set":
-            parts.append(f"音量 {p.get('level','?')}%")
+            parts.append(tr("summary.volume").format(level=p.get('level','?')))
         elif bt == "shutdown":
             parts.append(p.get("action",""))
         elif bt == "screenshot":
-            parts.append(f"[{p.get('mode','save_file')}] {p.get('filename_fmt','')}.{p.get('format','png')}")
+            parts.append(tr("summary.screenshot_mode").format(
+                mode=p.get('mode','save_file'),
+                fmt=f"{p.get('filename_fmt','')}.{p.get('format','png')}"))
         elif bt == "mouse_move":
             pos = p.get('pos', {})
             x = pos.get('x', p.get('x', '?'))
             y = pos.get('y', p.get('y', '?'))
             curve = p.get('curve', 'linear')
-            curve_map = {"linear":"线性","ease_in":"缓入","ease_out":"缓出","ease_in_out":"缓入缓出","bezier":"贝塞尔","random":"随机"}
-            parts.append(f"移到 ({x}, {y})")
+            curve_map = {
+                "linear": tr("summary.curve_linear"),
+                "ease_in": tr("summary.curve_ease_in"),
+                "ease_out": tr("summary.curve_ease_out"),
+                "ease_in_out": tr("summary.curve_ease_in_out"),
+                "bezier": tr("summary.curve_bezier"),
+                "random": tr("summary.curve_random"),
+            }
+            parts.append(tr("summary.move_to").format(x=x, y=y))
             if curve != "linear":
                 parts.append(curve_map.get(curve, curve))
         elif bt == "mouse_click_pos":
             pos = p.get('pos', {})
             x = pos.get('x', p.get('x', '?'))
             y = pos.get('y', p.get('y', '?'))
-            parts.append(f"{p.get('button','left')}键 @ ({x},{y})")
+            btn_map = {"left": tr("summary.btn_left"), "right": tr("summary.btn_right"), "middle": tr("summary.btn_middle")}
+            parts.append(tr("summary.click_pos").format(btn=btn_map.get(p.get('button','left'), p.get('button','left')), x=x, y=y))
         elif bt == "mouse_scroll":
             pos = p.get('pos', {})
             x = pos.get('x', p.get('x', '?'))
             y = pos.get('y', p.get('y', '?'))
-            parts.append(f"滚轮 ({x},{y}) x{p.get('amount',3)}")
+            parts.append(tr("summary.scroll").format(x=x, y=y, n=p.get('amount',3)))
         elif bt == "mouse_drag":
             fp = p.get('from_pos', {})
             tp = p.get('to_pos', {})
@@ -1949,9 +1964,16 @@ class BlockCard(QFrame):
             fy = fp.get('y', p.get('from_y', '?'))
             tx = tp.get('x', p.get('to_x', '?'))
             ty = tp.get('y', p.get('to_y', '?'))
-            parts.append(f"({fx},{fy}) → ({tx},{ty})")
+            parts.append(tr("summary.drag").format(fx=fx, fy=fy, tx=tx, ty=ty))
             curve = p.get('curve', 'linear')
-            curve_map = {"linear":"线性","ease_in":"缓入","ease_out":"缓出","ease_in_out":"缓入缓出","bezier":"贝塞尔","random":"随机"}
+            curve_map = {
+                "linear": tr("summary.curve_linear"),
+                "ease_in": tr("summary.curve_ease_in"),
+                "ease_out": tr("summary.curve_ease_out"),
+                "ease_in_out": tr("summary.curve_ease_in_out"),
+                "bezier": tr("summary.curve_bezier"),
+                "random": tr("summary.curve_random"),
+            }
             if curve != "linear":
                 parts.append(curve_map.get(curve, curve))
         elif bt == "keymouse_macro":
@@ -1959,7 +1981,7 @@ class BlockCard(QFrame):
             cnt = len(data) if isinstance(data, list) else 0
             speed = p.get('speed', 1.0)
             repeat = p.get('repeat', 1)
-            parts.append(f"{cnt} 事件 x{repeat} 速度x{speed}")
+            parts.append(tr("summary.macro_events").format(cnt=cnt, repeat=repeat, speed=speed))
         elif bt == "open_url":
             parts.append(p.get("url","")[:50])
         elif bt == "input_text":
@@ -1970,9 +1992,9 @@ class BlockCard(QFrame):
             parts.append(p.get("path","")[-40:])
         elif bt == "clipboard":
             if p.get("action") == "get":
-                parts.append(f"读取 → {p.get('save_to','')}")
+                parts.append(tr("summary.clipboard_read").format(var=p.get('save_to','')))
             elif p.get("action") == "set":
-                parts.append(f"写入: {p.get('content','')[:30]}")
+                parts.append(tr("summary.clipboard_write").format(text=p.get('content','')[:30]))
         elif bt == "get_window_info":
             parts.append(f"{p.get('title','')} -> {p.get('save_to','')}")
         elif bt == "get_ping_latency":
@@ -1981,19 +2003,30 @@ class BlockCard(QFrame):
             parts.append(f"Ping {host} → {save_to}")
         elif bt == "launch_steam":
             app_id = p.get("app_id", "")
-            parts.append(f"AppID: {app_id}" if app_id else "打开 Steam 库")
+            parts.append(f"AppID: {app_id}" if app_id else tr("summary.launch_steam_default"))
         elif bt == "launch_app":
             path     = p.get("path", "")
             run_mode = p.get("run_mode", "normal")
             wait     = p.get("wait", False)
-            mode_map = {"normal": "", "minimized": " [最小化]", "maximized": " [最大化]", "hidden": " [后台]"}
-            label    = os.path.basename(path) if path else "未设置"
-            parts.append(f"{label}{mode_map.get(run_mode,'')}" + (" 等待退出" if wait else ""))
+            mode_map = {
+                "normal": "",
+                "minimized": tr("summary.launch_mode_minimized"),
+                "maximized": tr("summary.launch_mode_maximized"),
+                "hidden": tr("summary.launch_mode_hidden"),
+            }
+            label    = os.path.basename(path) if path else tr("summary.launch_app_notset")
+            parts.append(f"{label}{mode_map.get(run_mode,'')}" + (tr("summary.launch_app_wait") if wait else ""))
         elif bt == "browser_search":
             kw     = p.get("keyword", "")
             engine = p.get("engine", "baidu")
-            ENGINE_LABEL = {"baidu": "百度", "google": "Google", "bing": "Bing",
-                            "bilibili": "B站", "zhihu": "知乎", "custom": "自定义"}
+            ENGINE_LABEL = {
+                "baidu": tr("summary.browser_engine_baidu"),
+                "google": "Google",
+                "bing": "Bing",
+                "bilibili": tr("summary.browser_engine_bilibili"),
+                "zhihu": tr("summary.browser_engine_zhihu"),
+                "custom": tr("summary.browser_engine_custom"),
+            }
             parts.append(f"[{ENGINE_LABEL.get(engine, engine)}] {kw[:30]}")
         elif bt == "download_file":
             url = p.get("url", "")
@@ -2002,40 +2035,40 @@ class BlockCard(QFrame):
             arc = p.get("archive", "")
             parts.append(arc[-40:] if arc else "")
         elif bt == "show_desktop":
-            parts.append("切换显示桌面")
+            parts.append(tr("summary.show_desktop"))
         elif bt == "lock_computer":
-            parts.append("锁定 Win+L")
+            parts.append(tr("summary.lock_computer"))
         elif bt == "browser_auto":
             task = p.get("task", "")
             provider = p.get("llm_provider", "settings")
             headless = p.get("headless", False)
             close_after = p.get("close_after", True)
             mode = p.get("mode", "ai_run")
-            label = (task[:35] + "...") if len(task) > 35 else (task or "未设置任务")
+            label = (task[:35] + "...") if len(task) > 35 else (task or tr("summary.browser_auto_no_task"))
             flags = []
             if mode == "ai_generate":
-                flags.append("生成步骤")
+                flags.append(tr("summary.browser_auto_gen_steps"))
             if provider != "settings":
                 flags.append(provider)
             if headless:
-                flags.append("无头")
+                flags.append(tr("summary.browser_auto_headless"))
             if not close_after:
-                flags.append("保留浏览器")
+                flags.append(tr("summary.browser_auto_keep"))
             parts.append(label + (f" [{', '.join(flags)}]" if flags else ""))
         elif bt == "browser_open_url":
             url = p.get("url", "")
-            parts.append((url[:50] + "...") if len(url) > 50 else (url or "未设置URL"))
+            parts.append((url[:50] + "...") if len(url) > 50 else (url or tr("summary.browser_no_url")))
         elif bt == "browser_click":
             sel = p.get("selector", "") or p.get("by_text", "")
             by_text = p.get("by_text", "")
             if by_text:
-                parts.append(f"文本: {by_text[:40]}")
+                parts.append(tr("summary.browser_text_prefix").format(text=by_text[:40]))
             else:
-                parts.append(sel[:40] or "未设置选择器")
+                parts.append(sel[:40] or tr("summary.browser_no_selector"))
         elif bt == "browser_type":
             sel = p.get("selector", "")
             text = p.get("text", "")
-            parts.append(f"{sel[:20]} ← {text[:25]}" if sel else (text[:40] or "未设置"))
+            parts.append(f"{sel[:20]} ← {text[:25]}" if sel else (text[:40] or tr("summary.browser_no_selector")))
         elif bt == "browser_get_text":
             sel = p.get("selector", "")
             save_to = p.get("save_to", "browser_text")
@@ -2043,67 +2076,73 @@ class BlockCard(QFrame):
         elif bt == "browser_screenshot":
             path = p.get("save_path", "screenshot.png")
             full = p.get("full_page", False)
-            parts.append((path[-40:] if len(path) > 40 else path) + (" [整页]" if full else ""))
+            _page_label = f" [{tr('summary.region_fullscreen')}]" if full else ""
+            parts.append((path[-40:] if len(path) > 40 else path) + _page_label)
         elif bt == "browser_wait_element":
             sel = p.get("selector", "")
             state = p.get("state", "visible")
-            state_map = {"visible": "可见", "hidden": "隐藏", "attached": "出现", "detached": "消失"}
-            parts.append(f"{sel[:35]} [{state_map.get(state, state)}]" if sel else "未设置选择器")
+            state_map = {
+                "visible": tr("summary.browser_wait_visible"),
+                "hidden": tr("summary.browser_wait_hidden"),
+                "attached": tr("summary.browser_wait_attached"),
+                "detached": tr("summary.browser_wait_detached"),
+            }
+            parts.append(f"{sel[:35]} [{state_map.get(state, state)}]" if sel else tr("summary.browser_no_selector"))
 
         # ── 屏幕识别 ──
         elif bt == "screen_find_image":
             img = p.get("image_path", "")
             conf = p.get("confidence", 0.8)
-            name = os.path.basename(img) if img else "未选择图片"
-            parts.append(f"{name}  精度={conf}")
+            name = os.path.basename(img) if img else tr("summary.screen_no_image")
+            parts.append(tr("summary.screen_image").format(name=name, conf=conf))
         elif bt == "screen_click_image":
             img = p.get("image_path", "")
             conf = p.get("confidence", 0.8)
             btn = p.get("button", "left")
-            btn_map = {"left": "左键", "right": "右键", "middle": "中键"}
-            name = os.path.basename(img) if img else "未选择图片"
-            parts.append(f"{name}  {btn_map.get(btn, btn)}  精度={conf}")
+            btn_map = {"left": tr("summary.btn_left"), "right": tr("summary.btn_right"), "middle": tr("summary.btn_middle")}
+            name = os.path.basename(img) if img else tr("summary.screen_no_image")
+            parts.append(tr("summary.screen_image_click").format(name=name, btn=btn_map.get(btn, btn), conf=conf))
         elif bt == "screen_wait_image":
             img = p.get("image_path", "")
             timeout = p.get("timeout", 30)
-            name = os.path.basename(img) if img else "未选择图片"
-            parts.append(f"{name}  超时={timeout}s")
+            name = os.path.basename(img) if img else tr("summary.screen_no_image")
+            parts.append(tr("summary.screen_image_wait").format(name=name, timeout=timeout))
         # ── 窗口图片识别 ──
         elif bt == "win_find_image":
             img = p.get("image_path", "")
             win = p.get("window_title", "")
             conf = p.get("confidence", 0.8)
-            name = os.path.basename(img) if img else "未选择图片"
-            parts.append(f"{win or '未指定窗口'} → {name}  精度={conf}")
+            name = os.path.basename(img) if img else tr("summary.screen_no_image")
+            parts.append(f"{win or tr('summary.win_no_window')} → {name}  " + tr("summary.screen_image").format(name='', conf=conf).strip())
         elif bt == "win_click_image":
             img = p.get("image_path", "")
             win = p.get("window_title", "")
             conf = p.get("confidence", 0.8)
             btn = p.get("button", "left")
-            btn_map = {"left": "左键", "right": "右键", "middle": "中键"}
-            name = os.path.basename(img) if img else "未选择图片"
-            parts.append(f"{win or '未指定窗口'} → {name}  {btn_map.get(btn, btn)}  精度={conf}")
+            btn_map = {"left": tr("summary.btn_left"), "right": tr("summary.btn_right"), "middle": tr("summary.btn_middle")}
+            name = os.path.basename(img) if img else tr("summary.screen_no_image")
+            parts.append(f"{win or tr('summary.win_no_window')} → {name}  {btn_map.get(btn, btn)}  conf={conf}")
         elif bt == "screen_screenshot_region":
             region = p.get("region", "")
             save_path = p.get("save_path", "region_shot.png")
-            region_str = region if region else "全屏"
+            region_str = region if region else tr("summary.region_fullscreen")
             name = os.path.basename(save_path) if save_path else "region_shot.png"
-            parts.append(f"区域={region_str} → {name}")
+            parts.append(tr("summary.region_screenshot").format(region=region_str, name=name))
 
         # ── 窗口控件 ──
         elif bt == "win_find_window":
             title = p.get("title", "")
             save_to = p.get("save_to", "win_handle")
-            parts.append(f"{title[:30] if title else '任意窗口'} → {save_to}")
+            parts.append(f"{title[:30] if title else tr('summary.win_any_window')} → {save_to}")
         elif bt == "win_click_control":
             win = p.get("window_title", "")
             ctrl = p.get("control_title", "")
             dbl = p.get("double_click", False)
-            parts.append(f"{win[:20]} / {ctrl[:20] if ctrl else '控件'}" + (" [双击]" if dbl else ""))
+            parts.append(f"{win[:20]} / {ctrl[:20] if ctrl else tr('summary.win_ctrl_default')}" + (tr("summary.win_double_click") if dbl else ""))
         elif bt == "win_input_control":
             win = p.get("window_title", "")
             text = p.get("text", "")
-            parts.append(f"{win[:20]} ← {text[:25] if text else '(空)'}")
+            parts.append(f"{win[:20]} ← {text[:25] if text else '()'}")
         elif bt == "win_get_control_text":
             win = p.get("window_title", "")
             save_to = p.get("save_to", "ctrl_text")
@@ -2111,11 +2150,11 @@ class BlockCard(QFrame):
         elif bt == "win_wait_window":
             title = p.get("title", "")
             timeout = p.get("timeout", 30)
-            parts.append(f"{title[:30] if title else '任意窗口'}  超时={timeout}s")
+            parts.append(f"{title[:30] if title else tr('summary.win_any_window')}" + tr("summary.win_timeout").format(timeout=timeout))
         elif bt == "win_close_window":
             title = p.get("title", "")
             force = p.get("force", False)
-            parts.append(f"{title[:35] if title else '未设置'}" + (" [强制]" if force else ""))
+            parts.append(f"{title[:35] if title else tr('summary.win_not_set')}" + (tr("summary.win_force_close") if force else ""))
 
 
 
@@ -2124,8 +2163,13 @@ class BlockCard(QFrame):
             repeat = p.get("repeat", 1)
             parts.append(f"{key}" + (f" ×{repeat}" if int(repeat) > 1 else ""))
         elif bt == "capslock":
-            action_map = {"on": "开启", "off": "关闭", "toggle": "切换", "get": "获取状态"}
-            parts.append(action_map.get(p.get("action", "toggle"), "切换"))
+            action_map = {
+                "on": tr("summary.capslock_on"),
+                "off": tr("summary.capslock_off"),
+                "toggle": tr("summary.capslock_toggle"),
+                "get": tr("summary.capslock_get"),
+            }
+            parts.append(action_map.get(p.get("action", "toggle"), tr("summary.capslock_toggle")))
         summary = "  ".join(parts)
         # 统一限制长度并加省略号
         MAX_LEN = 55
@@ -4781,35 +4825,35 @@ class BlockListWidget(QWidget):
         bt = card.block.block_type
 
         # ── 运行选项 ──
-        act_run = menu.addAction("▶  运行此功能块")
-        act_run_from = menu.addAction("▶▶  从此处开始运行")
+        act_run = menu.addAction(tr("block.ctx.run_this"))
+        act_run_from = menu.addAction(tr("block.ctx.run_from"))
         menu.addSeparator()
 
         # ── 编辑操作 ──
         if bt not in _CLOSE_MARKERS:
-            act_edit = menu.addAction("✎  编辑")
+            act_edit = menu.addAction(tr("block.ctx.edit"))
         else:
             act_edit = None
-        act_copy = menu.addAction("⎘  复制")
-        act_cut  = menu.addAction("✂  剪切")
+        act_copy = menu.addAction(tr("block.ctx.copy"))
+        act_cut  = menu.addAction("✂  " + tr("btn.delete"))
         act_paste = menu.addAction("📋  粘贴到此后")
         act_paste.setEnabled(bool(self._clipboard_blocks))
         menu.addSeparator()
 
         # ── 多选模式 ──
         act_multisel = menu.addAction(
-            "☑  退出多选模式" if self._multiselect_mode else "☑  进入多选模式"
+            "☑  退出多选模式" if self._multiselect_mode else "☑  " + tr("block.multiselect_tip")
         )
         if self._multiselect_mode and self._selected_ids:
-            act_del_sel = menu.addAction(f"🗑  删除已选中 ({len(self._selected_ids)} 个)")
-            act_copy_sel = menu.addAction(f"⎘  复制已选中 ({len(self._selected_ids)} 个)")
+            act_del_sel = menu.addAction(f"🗑  {tr('block.btn.delete_selected')} ({len(self._selected_ids)} 个)")
+            act_copy_sel = menu.addAction(f"⎘  {tr('block.btn.copy_selected')} ({len(self._selected_ids)} 个)")
         else:
             act_del_sel  = None
             act_copy_sel = None
         menu.addSeparator()
 
         # ── 删除 ──
-        act_del = menu.addAction("✕  删除此块")
+        act_del = menu.addAction(tr("block.ctx.delete"))
 
         # ── 插件扩展右键菜单项 ──
         plugin_actions = []
