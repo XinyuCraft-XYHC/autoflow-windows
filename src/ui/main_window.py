@@ -287,12 +287,6 @@ class MainWindow(QMainWindow):
         # 分组折叠状态（gid -> True=折叠）
         self._collapsed_groups: set = set()
 
-        # 背景图相关（paintEvent 绘制，不用 QLabel 层叠）
-        self._bg_pixmap = None    # QPixmap 静态图
-        self._bg_movie  = None    # QMovie GIF 动图
-        self._bg_mode   = "fill"
-        self._bg_opacity = 0.15
-
         self.setWindowTitle(f"{FULL_NAME} — {tr('main.title')}")
         self.resize(1200, 780)
         self.setMinimumSize(900, 600)
@@ -380,6 +374,17 @@ class MainWindow(QMainWindow):
             self._btn_settings.setText(tr("sidebar.settings"))
         if hasattr(self, '_btn_plugins'):
             self._btn_plugins.setText("🔌 " + tr("sidebar.plugins"))
+        if hasattr(self, '_btn_refresh_ui'):
+            self._btn_refresh_ui.setText(tr("main.btn_refresh") + "  F5")
+        # ── 托盘菜单 ──
+        if hasattr(self, '_tray_menu'):
+            actions = self._tray_menu.actions()
+            if actions:
+                actions[0].setText(tr("tray.show"))
+            if hasattr(self, '_tray_run_menu'):
+                self._tray_run_menu.setTitle(tr("tray.run_task"))
+            if len(actions) >= 1:
+                actions[-1].setText(tr("tray.quit"))
         # ── 刷新任务列表（任务名/状态文字）──
         self._refresh_task_list()
         # ── 刷新设置页（如已打开）──
@@ -389,35 +394,7 @@ class MainWindow(QMainWindow):
     # ─────────────────── 构建 UI ───────────────────
 
     def _build_ui(self):
-        # 使用自定义 central widget，在其 paintEvent 里绘制背景图
-        main_win_ref = self
-
-        class _BgCentralWidget(QWidget):
-            def paintEvent(self_w, event):
-                from PyQt6.QtGui import QPainter
-                # 先让 Qt 填充默认背景（确保有底色）
-                super().paintEvent(event)
-                pm_src = getattr(main_win_ref, "_bg_pixmap", None)
-                movie  = getattr(main_win_ref, "_bg_movie", None)
-                if movie is not None:
-                    pm_src = movie.currentPixmap()
-                if pm_src is None or pm_src.isNull():
-                    return
-                from .theme_manager import _scale_pixmap, _apply_opacity
-                painter = QPainter(self_w)
-                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-                size = self_w.size()
-                if size.width() > 0 and size.height() > 0:
-                    mode    = getattr(main_win_ref, "_bg_mode", "fill")
-                    opacity = getattr(main_win_ref, "_bg_opacity", 0.15)
-                    scaled  = _scale_pixmap(pm_src, size, mode)
-                    final   = _apply_opacity(scaled, opacity)
-                    x = (size.width()  - final.width())  // 2
-                    y = (size.height() - final.height()) // 2
-                    painter.drawPixmap(x, y, final)
-                painter.end()
-
-        central = _BgCentralWidget()
+        central = QWidget()
         central.setObjectName("main_central_widget")
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -441,11 +418,11 @@ class MainWindow(QMainWindow):
         root.addWidget(right_splitter)
 
         self.statusBar().setObjectName("status_bar")
-        self._status_label = QLabel("就绪")
+        self._status_label = QLabel(tr("status.ready"))
         self.statusBar().addWidget(self._status_label)
 
         # 状态栏右侧：撤回/重做计数
-        self._undo_label = QLabel("撤回: 0/0")
+        self._undo_label = QLabel(tr("status.undo_count").format(0, 0))
         self._undo_label.setStyleSheet("color: #6C7086; font-size: 11px; padding-right: 8px;")
         self.statusBar().addPermanentWidget(self._undo_label)
 
@@ -469,7 +446,7 @@ class MainWindow(QMainWindow):
         logo_lbl = QLabel("AutoFlow")
         logo_lbl.setObjectName("app_title")
         la.addWidget(logo_lbl)
-        sub_lbl = QLabel("智能自动化工具")
+        sub_lbl = QLabel(tr("app.subtitle"))
         sub_lbl.setStyleSheet("color:#6C7086; font-size:10px;")
         la.addWidget(sub_lbl)
         layout.addWidget(logo_area)
@@ -481,13 +458,13 @@ class MainWindow(QMainWindow):
         # ── 任务列表标题行（含分组管理按钮） ──
         tasks_header = QHBoxLayout()
         tasks_header.setContentsMargins(14, 8, 8, 4)
-        self._tasks_lbl = QLabel("任务列表")
+        self._tasks_lbl = QLabel(tr("sidebar.tasks"))
         self._tasks_lbl.setObjectName("sidebar_section_lbl")
         self._tasks_lbl.setContentsMargins(0, 0, 0, 0)
         tasks_header.addWidget(self._tasks_lbl)
         tasks_header.addStretch()
         self._group_btn = QPushButton("⊞")
-        self._group_btn.setToolTip("管理任务分组")
+        self._group_btn.setToolTip(tr("main.groups_dlg"))
         self._group_btn.setObjectName("btn_flat")
         self._group_btn.setFixedSize(22, 22)
         self._group_btn.clicked.connect(self._show_group_manager)
@@ -502,9 +479,9 @@ class MainWindow(QMainWindow):
         self._task_list.group_clicked.connect(self._on_group_item_clicked)
         layout.addWidget(self._task_list)
 
-        self._add_task_btn = QPushButton("+  新建任务  Ctrl+T")
+        self._add_task_btn = QPushButton(tr("sidebar.new_task") + "  Ctrl+T")
         self._add_task_btn.setObjectName("sidebar_add_btn")
-        self._add_task_btn.setToolTip("新建任务 (Ctrl+T)")
+        self._add_task_btn.setToolTip(tr("sidebar.new_task") + " (Ctrl+T)")
         self._add_task_btn.clicked.connect(self._add_task)
         layout.addWidget(self._add_task_btn)
 
@@ -515,17 +492,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(sep2)
 
         # 底部按钮：新建/打开/保存/另存为/关闭/撤回/重做/历史/设置
-        self._btn_undo = self._make_sidebar_btn("撤回  Ctrl+Z",         self._undo)
-        self._btn_redo = self._make_sidebar_btn("重做  Ctrl+Y / Ctrl+Shift+Z", self._redo)
-        self._btn_hist = self._make_sidebar_btn("操作历史  Ctrl+H", self._show_history)
+        self._btn_undo = self._make_sidebar_btn(tr("sidebar.undo"),         self._undo)
+        self._btn_redo = self._make_sidebar_btn(tr("sidebar.redo"), self._redo)
+        self._btn_hist = self._make_sidebar_btn(tr("sidebar.history") + "  Ctrl+H", self._show_history)
 
         self._sidebar_file_btns = []
         for text, slot, tip in [
-            ("新建项目  Ctrl+N",     self._new_project_prompt, "新建项目 (Ctrl+N)"),
-            ("打开项目  Ctrl+O",     self._open_project,       "打开项目 (Ctrl+O)"),
-            ("保存项目  Ctrl+S",     self._save_project,       "保存项目 (Ctrl+S)"),
-            ("另存为  Ctrl+Shift+S", self._save_project_as,    "另存为 (Ctrl+Shift+S)"),
-            ("关闭项目  Ctrl+W",     self._close_project,      "关闭项目 (Ctrl+W)"),
+            (tr("sidebar.new_project") + "  Ctrl+N",     self._new_project_prompt, tr("sidebar.new_project") + " (Ctrl+N)"),
+            (tr("sidebar.open_project") + "  Ctrl+O",    self._open_project,       tr("sidebar.open_project") + " (Ctrl+O)"),
+            (tr("sidebar.save_project") + "  Ctrl+S",    self._save_project,       tr("sidebar.save_project") + " (Ctrl+S)"),
+            (tr("sidebar.save_as") + "  Ctrl+Shift+S",   self._save_project_as,    tr("sidebar.save_as") + " (Ctrl+Shift+S)"),
+            (tr("sidebar.close_project") + "  Ctrl+W",   self._close_project,      tr("sidebar.close_project") + " (Ctrl+W)"),
         ]:
             btn = self._make_sidebar_btn(text, slot)
             btn.setToolTip(tip)
@@ -544,14 +521,14 @@ class MainWindow(QMainWindow):
         sep4.setObjectName("sidebar_sep")
         layout.addWidget(sep4)
 
-        self._btn_refresh_ui = self._make_sidebar_btn("🔄 刷新界面  F5", self._force_ui_refresh)
-        self._btn_refresh_ui.setToolTip("强制刷新当前编辑器的功能块和触发器列表（修复偶发 UI 错乱）(F5)")
+        self._btn_refresh_ui = self._make_sidebar_btn(tr("main.btn_refresh") + "  F5", self._force_ui_refresh)
+        self._btn_refresh_ui.setToolTip(tr("main.btn_refresh_tip") + " (F5)")
         layout.addWidget(self._btn_refresh_ui)
 
-        self._btn_settings = self._make_sidebar_btn("设置", self._show_settings)
+        self._btn_settings = self._make_sidebar_btn(tr("sidebar.settings"), self._show_settings)
         layout.addWidget(self._btn_settings)
 
-        self._btn_plugins = self._make_sidebar_btn("🔌 插件管理", self._show_plugin_manager)
+        self._btn_plugins = self._make_sidebar_btn("🔌 " + tr("sidebar.plugins"), self._show_plugin_manager)
         layout.addWidget(self._btn_plugins)
 
         layout.setContentsMargins(0, 0, 0, 8)
@@ -670,62 +647,8 @@ class MainWindow(QMainWindow):
 #task_list::item:selected {{
     background: {palette['accent']}22; color: {palette['accent']};
 }}
-/* centralWidget 透明，背景由 MainWindow.paintEvent 绘制 */
-#main_central_widget {{
-    background: transparent;
-}}
 """
         self.setStyleSheet(qss)
-
-        # ── 背景图/GIF（通过 paintEvent 绘制，不用 QLabel 层叠）──
-        if config:
-            # 整合包背景优先
-            pack_bg = ""
-            pack_opacity = getattr(config, "theme_bg_opacity", 0.15)
-            pack_mode    = getattr(config, "theme_bg_mode", "fill")
-            pack_path = getattr(config, "theme_pack_path", "")
-            if pack_path:
-                from .theme_manager import get_installed_pack
-                pack = get_installed_pack(pack_path)
-                if pack and pack.bg_file:
-                    pack_bg      = pack.bg_file
-                    pack_opacity = pack.bg_opacity
-                    pack_mode    = pack.bg_mode
-
-            bg_image = getattr(config, "theme_bg_image", "") or pack_bg
-            bg_opacity = getattr(config, "theme_bg_opacity", pack_opacity) if getattr(config, "theme_bg_image", "") else pack_opacity
-            bg_mode    = getattr(config, "theme_bg_mode", pack_mode) if getattr(config, "theme_bg_image", "") else pack_mode
-        else:
-            bg_image = ""
-            bg_opacity = 0.15
-            bg_mode = "fill"
-
-        # 停止旧 GIF
-        if self._bg_movie is not None:
-            self._bg_movie.stop()
-            self._bg_movie.frameChanged.disconnect()
-            self._bg_movie = None
-        self._bg_pixmap = None
-        self._bg_mode = bg_mode
-        self._bg_opacity = bg_opacity
-
-        if bg_image and os.path.exists(bg_image):
-            from PyQt6.QtGui import QPixmap, QMovie
-            if bg_image.lower().endswith(".gif"):
-                movie = QMovie(bg_image)
-                movie.start()
-                # 每帧变化时触发 centralWidget 重绘（而非 MainWindow 自身）
-                cw = self.centralWidget()
-                if cw:
-                    movie.frameChanged.connect(lambda _: cw.update())
-                self._bg_movie = movie
-            else:
-                pm = QPixmap(bg_image)
-                if not pm.isNull():
-                    self._bg_pixmap = pm
-        cw = self.centralWidget()
-        if cw:
-            cw.update()  # 触发 centralWidget paintEvent 重绘背景
 
         # ── 通知 LogPanel 更新颜色 ──
         if hasattr(self, '_log_panel'):
@@ -753,18 +676,18 @@ class MainWindow(QMainWindow):
                 self.style().StandardPixmap.SP_ComputerIcon))
 
         tray_menu = QMenu()
-        tray_menu.addAction("显示主窗口", self.show_and_raise)
+        tray_menu.addAction(tr("tray.show"), self.show_and_raise)
         tray_menu.addSeparator()
-        self._tray_run_menu = tray_menu.addMenu("手动运行任务")
+        self._tray_run_menu = tray_menu.addMenu(tr("tray.run_task"))
         tray_menu.addSeparator()
         # 插件扩展托盘菜单项（由 _refresh_tray_menu 动态填充）
         self._tray_plugin_menu_placeholder = tray_menu.addSeparator()
         self._tray_plugin_actions: list = []
-        tray_menu.addAction("退出", self._quit_app)
+        tray_menu.addAction(tr("tray.quit"), self._quit_app)
 
         self._tray_menu = tray_menu
         self._tray.setContextMenu(tray_menu)
-        self._tray.setToolTip("AutoFlow — 智能自动化工具")
+        self._tray.setToolTip(f"AutoFlow — {tr('app.subtitle')}")
         self._tray.activated.connect(self._on_tray_activated)
         self._tray.show()
         
@@ -891,7 +814,7 @@ class MainWindow(QMainWindow):
         self.update()
         self.repaint()
         if refreshed:
-            show_toast(self, "界面已刷新", duration_ms=1500, color="#A6E3A1")
+            show_toast(self, tr("main.ui_refreshed"), duration_ms=1500, color="#A6E3A1")
 
 
 
@@ -918,8 +841,8 @@ class MainWindow(QMainWindow):
         """检查保存后再新建"""
         if self._modified:
             reply = QMessageBox.question(
-                self, "新建项目",
-                "当前项目有未保存的更改，是否保存？",
+                self, tr("sidebar.new_project"),
+                tr("dlg.unsaved_msg"),
                 QMessageBox.StandardButton.Save |
                 QMessageBox.StandardButton.Discard |
                 QMessageBox.StandardButton.Cancel
@@ -934,8 +857,8 @@ class MainWindow(QMainWindow):
         """关闭当前项目，回到空白状态"""
         if self._modified:
             reply = QMessageBox.question(
-                self, "关闭项目",
-                "当前项目有未保存的更改，关闭将丢失。确定关闭？",
+                self, tr("sidebar.close_project"),
+                tr("dlg.close_project_msg"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
@@ -966,9 +889,9 @@ class MainWindow(QMainWindow):
             self._modified = False
             self._refresh_task_list()
             self.setWindowTitle(f"{FULL_NAME} — {os.path.basename(path)}")
-            self._status_label.setText(f"已加载: {os.path.basename(path)}")
+            self._status_label.setText(tr("main.loaded_project").format(name=os.path.basename(path)))
             self._start_trigger_monitor()
-            self._push_history(f"打开项目: {os.path.basename(path)}")
+            self._push_history(tr("main.push_history.open_project").format(name=os.path.basename(path)))
             self._reset_auto_save_timer()
             self._apply_theme(self._project.config.theme)
             # 同步坐标选点快捷键
@@ -984,13 +907,13 @@ class MainWindow(QMainWindow):
             _save_app_config(app_cfg)
             logger.info(f"项目已加载: {path}")
         except Exception as e:
-            QMessageBox.critical(self, "加载失败", f"无法加载项目文件：\n{e}")
+            QMessageBox.critical(self, tr("dlg.error"), tr("main.load_project_fail").format(err=e))
 
     def _open_project(self):
         if self._modified:
             reply = QMessageBox.question(
-                self, "打开项目",
-                "当前有未保存的更改，是否保存？",
+                self, tr("sidebar.open_project"),
+                tr("dlg.unsaved_msg"),
                 QMessageBox.StandardButton.Save |
                 QMessageBox.StandardButton.Discard |
                 QMessageBox.StandardButton.Cancel
@@ -1000,7 +923,7 @@ class MainWindow(QMainWindow):
             elif reply == QMessageBox.StandardButton.Cancel:
                 return
         path, _ = QFileDialog.getOpenFileName(
-            self, "打开项目", _APP_PROJECT_DIR, "AutoFlow 项目 (*.afp *.json);;所有文件 (*)")
+            self, tr("dlg.open_project_title"), _APP_PROJECT_DIR, tr("dlg.project_filter"))
         if path:
             for w in list(self._task_editors.values()):
                 self._stack.removeWidget(w)
@@ -1012,11 +935,11 @@ class MainWindow(QMainWindow):
             editor.save_to_task()
 
         if not self._project_path:
-            default_name = "新项目.afp"
+            default_name = tr("main.new_project") + ".afp"
             path, _ = QFileDialog.getSaveFileName(
-                self, "保存项目",
+                self, tr("dlg.save_project_title"),
                 os.path.join(_APP_PROJECT_DIR, default_name),
-                "AutoFlow 项目 (*.afp);;JSON文件 (*.json)")
+                tr("dlg.project_filter"))
             if not path:
                 return
             self._project_path = path
@@ -1027,13 +950,13 @@ class MainWindow(QMainWindow):
             self._modified_label.setText("")
             self.setWindowTitle(f"{FULL_NAME} — {os.path.basename(self._project_path)}")
             if not silent:
-                self._status_label.setText(f"已保存: {os.path.basename(self._project_path)}")
+                self._status_label.setText(tr("main.saved_project").format(name=os.path.basename(self._project_path)))
             # 更新最近路径
             app_cfg = _load_app_config()
             app_cfg["last_project"] = self._project_path
             _save_app_config(app_cfg)
         except Exception as e:
-            QMessageBox.critical(self, "保存失败", f"保存失败：\n{e}")
+            QMessageBox.critical(self, tr("main.save_fail_title"), tr("main.save_fail_msg").format(err=e))
 
     def _save_project_as(self):
         """项目另存为（选择新路径保存，并将当前路径切换到新路径）"""
@@ -1042,14 +965,14 @@ class MainWindow(QMainWindow):
 
         # 以当前文件名为默认，若无则用"新项目"
         current_name = (os.path.basename(self._project_path)
-                        if self._project_path else "新项目.afp")
+                        if self._project_path else tr("main.new_project") + ".afp")
         start_dir = (os.path.dirname(self._project_path)
                      if self._project_path else _APP_PROJECT_DIR)
 
         path, _ = QFileDialog.getSaveFileName(
-            self, "项目另存为",
+            self, tr("main.save_as_title"),
             os.path.join(start_dir, current_name),
-            "AutoFlow 项目 (*.afp);;JSON文件 (*.json)")
+            tr("dlg.project_filter"))
         if not path:
             return
 
@@ -1059,13 +982,13 @@ class MainWindow(QMainWindow):
             self._modified = False
             self._modified_label.setText("")
             self.setWindowTitle(f"{FULL_NAME} — {os.path.basename(path)}")
-            self._status_label.setText(f"已另存为: {os.path.basename(path)}")
+            self._status_label.setText(tr("main.saved_as_project").format(name=os.path.basename(path)))
             # 更新最近路径
             app_cfg = _load_app_config()
             app_cfg["last_project"] = path
             _save_app_config(app_cfg)
         except Exception as e:
-            QMessageBox.critical(self, "另存为失败", f"保存失败：\n{e}")
+            QMessageBox.critical(self, tr("main.save_fail_title"), tr("main.save_fail_msg").format(err=e))
 
     def _auto_save(self):
         """自动保存（静默）"""
@@ -1073,7 +996,7 @@ class MainWindow(QMainWindow):
         if self._modified and self._project_path:
             self._save_project(silent=True)
             self._status_label.setText(
-                f"自动保存: {os.path.basename(self._project_path)}")
+                tr("main.autosaved_project").format(name=os.path.basename(self._project_path)))
 
     def _reset_auto_save_timer(self):
         self._auto_save_timer.stop()
@@ -1110,7 +1033,7 @@ class MainWindow(QMainWindow):
             return
         self._history_pos -= 1
         self._restore_snapshot(self._history[self._history_pos].snapshot)
-        self._status_label.setText(f"已撤回: {self._history[self._history_pos].desc}")
+        self._status_label.setText(tr("main.undone").format(desc=self._history[self._history_pos].desc))
         self._update_undo_label()
 
     def _redo(self):
@@ -1119,7 +1042,7 @@ class MainWindow(QMainWindow):
             return
         self._history_pos += 1
         self._restore_snapshot(self._history[self._history_pos].snapshot)
-        self._status_label.setText(f"已重做: {self._history[self._history_pos].desc}")
+        self._status_label.setText(tr("main.redone").format(desc=self._history[self._history_pos].desc))
         self._update_undo_label()
 
     def _restore_snapshot(self, snapshot: dict):
@@ -1181,23 +1104,23 @@ class MainWindow(QMainWindow):
     def _update_undo_label(self):
         total = len(self._history)
         pos   = self._history_pos + 1
-        self._undo_label.setText(f"历史: {pos}/{total}")
+        self._undo_label.setText(tr("status.undo_count").format(pos, total))
 
     def _show_history(self):
         """弹出操作历史对话框"""
         dlg = QDialog(self)
-        dlg.setWindowTitle("操作历史")
+        dlg.setWindowTitle(tr("main.history_dlg"))
         dlg.setMinimumWidth(420)
         dlg.setMinimumHeight(360)
         layout = QVBoxLayout(dlg)
 
-        hint = QLabel("点击条目可跳转到该历史节点")
+        hint = QLabel(tr("main.history_hint"))
         hint.setObjectName("hint")
         layout.addWidget(hint)
 
         lst = QListWidget()
         for i, entry in enumerate(self._history):
-            marker = " <-- 当前" if i == self._history_pos else ""
+            marker = " <-- " + tr("main.history_current") if i == self._history_pos else ""
             item = QListWidgetItem(f"{i+1}. {entry.desc}{marker}")
             item.setData(Qt.ItemDataRole.UserRole, i)
             if i == self._history_pos:
@@ -1207,7 +1130,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(lst)
 
         btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        btn_restore = QPushButton("还原到此节点")
+        btn_restore = QPushButton(tr("main.history_restore_btn"))
         btn_restore.setObjectName("btn_primary")
         btn_box.addButton(btn_restore, QDialogButtonBox.ButtonRole.ActionRole)
         btn_box.rejected.connect(dlg.reject)
@@ -1220,7 +1143,7 @@ class MainWindow(QMainWindow):
             idx = lst.item(row).data(Qt.ItemDataRole.UserRole)
             self._history_pos = idx
             self._restore_snapshot(self._history[idx].snapshot)
-            self._status_label.setText(f"已还原到: {self._history[idx].desc}")
+            self._status_label.setText(tr("main.restored_to").format(desc=self._history[idx].desc))
             self._update_undo_label()
             dlg.accept()
 
@@ -1230,7 +1153,7 @@ class MainWindow(QMainWindow):
     # ─────────────────── 任务管理 ───────────────────
 
     def _add_task(self):
-        name, ok = QInputDialog.getText(self, "新建任务", "任务名称：", text="新任务")
+        name, ok = QInputDialog.getText(self, tr("task.new"), tr("dlg.enter_task_name"), text=tr("task.unnamed"))
         if not ok or not name.strip():
             return
         task = Task(name=name.strip())
@@ -1242,7 +1165,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_settings_page'):
             self._settings_page.refresh_tasks(self._project.tasks)
         self._mark_modified()
-        self._push_history(f"新建任务: {task.name}")
+        self._push_history(tr("main.push_history.new_task").format(name=task.name))
 
     def _refresh_task_list(self):
         self._task_list.clear()
@@ -1322,14 +1245,14 @@ class MainWindow(QMainWindow):
 
     def _quick_add_group(self):
         """快速新建分组（右键菜单）"""
-        name, ok = QInputDialog.getText(self, "新建分组", "分组名称：")
+        name, ok = QInputDialog.getText(self, tr("main.new_group_title"), tr("main.new_group_ph"))
         if ok and name.strip():
             import uuid as _uuid
             gid = str(_uuid.uuid4())[:8]
             self._project.task_groups.append({"id": gid, "name": name.strip()})
             self._refresh_task_list()
             self._mark_modified()
-            self._push_history(f"新建分组: {name.strip()}")
+            self._push_history(tr("main.push_history.new_group").format(name=name.strip()))
 
     def _on_task_selected(self, row: int):
         if row < 0:
@@ -1378,10 +1301,8 @@ class MainWindow(QMainWindow):
             from PyQt6.QtWidgets import QMessageBox as _MB
             _MB.warning(
                 self,
-                "加载任务失败",
-                f"任务「{task.name}」加载时出错，请检查项目文件是否损坏。\n\n"
-                f"错误信息：{_e}\n\n"
-                f"{traceback.format_exc()}"
+                tr("main.load_task_fail_title"),
+                tr("main.load_task_fail_msg").format(name=task.name, err=_e, trace=traceback.format_exc())
             )
 
         self._task_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1395,8 +1316,8 @@ class MainWindow(QMainWindow):
 
         if not item:
             # 右键空白区域：提供新建任务 + 新建分组
-            menu.addAction("＋ 新建任务", self._add_task)
-            menu.addAction("📁 新建分组", self._quick_add_group)
+            menu.addAction("＋ " + tr("task.new"), self._add_task)
+            menu.addAction("📁 " + tr("main.groups_dlg"), self._quick_add_group)
             menu.exec(self._task_list.mapToGlobal(pos))
             return
 
@@ -1406,10 +1327,10 @@ class MainWindow(QMainWindow):
             gid = item.data(Qt.ItemDataRole.UserRole + 1)
             if not gid:
                 return
-            menu.addAction("✏ 重命名分组", lambda: self._rename_group(gid))
-            menu.addAction("🗑 删除分组（任务保留）", lambda: self._delete_group(gid))
+            menu.addAction("✏ " + tr("main.group_ctx.rename"), lambda: self._rename_group(gid))
+            menu.addAction("🗑 " + tr("main.group_ctx.delete"), lambda: self._delete_group(gid))
             menu.addSeparator()
-            menu.addAction("📁 新建分组", self._quick_add_group)
+            menu.addAction("📁 " + tr("task.new"), self._quick_add_group)
             menu.exec(self._task_list.mapToGlobal(pos))
             return
 
@@ -1417,27 +1338,27 @@ class MainWindow(QMainWindow):
         if not task:
             return
         menu = QMenu(self)
-        menu.addAction("重命名", lambda: self._rename_task(task))
-        menu.addAction("复制任务", lambda: self._duplicate_task(task))
+        menu.addAction(tr("main.task_ctx.rename"), lambda: self._rename_task(task))
+        menu.addAction(tr("main.task_ctx.duplicate"), lambda: self._duplicate_task(task))
 
         # 移入分组子菜单
         if self._project.task_groups:
-            move_sub = menu.addMenu("移入分组")
-            move_sub.addAction("（不分组）", lambda: self._move_task_to_group(task, ""))
+            move_sub = menu.addMenu(tr("main.task_ctx.move_to_group"))
+            move_sub.addAction("（" + tr("main.task_ctx.remove_from_group") + "）", lambda: self._move_task_to_group(task, ""))
             for grp in self._project.task_groups:
                 grp_id   = grp["id"]
                 grp_name = grp["name"]
                 move_sub.addAction(grp_name, lambda _=None, gid=grp_id: self._move_task_to_group(task, gid))
 
         menu.addSeparator()
-        run_action = menu.addAction("> 立即运行", lambda: self._run_task(task.id))
+        run_action = menu.addAction(tr("main.task_ctx.run"), lambda: self._run_task(task.id))
         if task.id in self._runners:
             run_action.setEnabled(False)
-            menu.addAction("停止运行", lambda: self._stop_task(task.id))
+            menu.addAction(tr("main.task_ctx.stop"), lambda: self._stop_task(task.id))
         menu.addSeparator()
-        menu.addAction("🖥 创建桌面快捷方式", lambda: self._create_desktop_shortcut(task))
+        menu.addAction("🖥 " + tr("main.task_ctx.shortcut"), lambda: self._create_desktop_shortcut(task))
         menu.addSeparator()
-        menu.addAction("删除任务", lambda: self._delete_task(task))
+        menu.addAction(tr("main.task_ctx.delete"), lambda: self._delete_task(task))
         menu.exec(self._task_list.mapToGlobal(pos))
 
     def _create_desktop_shortcut(self, task):
@@ -1488,9 +1409,9 @@ class MainWindow(QMainWindow):
         default_path = os.path.join(desktop, f"{safe_name}.lnk")
         save_path, _ = QFileDialog.getSaveFileName(
             self,
-            "保存快捷方式",
+            tr("main.shortcut_save_title"),
             default_path,
-            "快捷方式 (*.lnk)"
+            tr("main.shortcut_filter")
         )
         if not save_path:
             return  # 用户取消
@@ -1522,15 +1443,14 @@ class MainWindow(QMainWindow):
 
             # ── 成功弹窗：展示任务 ID + 命令行命令 ──
             dlg = QDialog(self)
-            dlg.setWindowTitle("快捷方式已创建")
+            dlg.setWindowTitle(tr("main.shortcut_ok_title"))
             dlg.setMinimumWidth(480)
             lay = QVBoxLayout(dlg)
             lay.setSpacing(12)
             lay.setContentsMargins(20, 16, 20, 16)
 
             ok_lbl = QLabel(
-                f"✅ 快捷方式已创建：\n{save_path}\n\n"
-                f"双击该快捷方式可直接运行任务「{task.name}」，无需打开 AutoFlow 主界面。"
+                tr("main.shortcut_created_msg").format(path=save_path, name=task.name)
             )
             ok_lbl.setWordWrap(True)
             lay.addWidget(ok_lbl)
@@ -1543,7 +1463,7 @@ class MainWindow(QMainWindow):
             lay.addWidget(sep)
 
             # 任务 ID 区域
-            id_title = QLabel("📋 任务 ID（命令行调用用）：")
+            id_title = QLabel(tr("task.cmd_task_id_label"))
             id_title.setStyleSheet("font-weight: bold; color: #CDD6F4;")
             lay.addWidget(id_title)
 
@@ -1555,12 +1475,12 @@ class MainWindow(QMainWindow):
                 "border-radius:4px; padding:4px 8px; color:#89B4FA; font-family: monospace; }"
             )
             id_row.addWidget(id_edit)
-            copy_id_btn = QPushButton("复制")
+            copy_id_btn = QPushButton(tr("task.copy_id_btn"))
             copy_id_btn.setFixedWidth(52)
             copy_id_btn.clicked.connect(lambda: (
                 QApplication.clipboard().setText(task.id),
-                copy_id_btn.setText("✓"),
-                QTimer.singleShot(1500, lambda: copy_id_btn.setText("复制"))
+                copy_id_btn.setText(tr("task.copy_id_done")),
+                QTimer.singleShot(1500, lambda: copy_id_btn.setText(tr("task.copy_id_btn")))
             ))
             id_row.addWidget(copy_id_btn)
             lay.addLayout(id_row)
@@ -1574,7 +1494,7 @@ class MainWindow(QMainWindow):
                 cmd_text = f'python main.py --run-task {task.id}'
                 cmd_full = cmd_text
 
-            cmd_title = QLabel("⌨️ 命令行调用方式：")
+            cmd_title = QLabel(tr("task.cmd_btn") + "：")
             cmd_title.setStyleSheet("font-weight: bold; color: #CDD6F4;")
             lay.addWidget(cmd_title)
 
@@ -1586,25 +1506,22 @@ class MainWindow(QMainWindow):
                 "border-radius:4px; padding:4px 8px; color:#A6E3A1; font-family: monospace; }"
             )
             cmd_row.addWidget(cmd_edit)
-            copy_cmd_btn = QPushButton("复制")
+            copy_cmd_btn = QPushButton(tr("task.cmd_copy_btn"))
             copy_cmd_btn.setFixedWidth(52)
             copy_cmd_btn.clicked.connect(lambda: (
                 QApplication.clipboard().setText(cmd_full),
-                copy_cmd_btn.setText("✓"),
-                QTimer.singleShot(1500, lambda: copy_cmd_btn.setText("复制"))
+                copy_cmd_btn.setText(tr("task.cmd_copy_done")),
+                QTimer.singleShot(1500, lambda: copy_cmd_btn.setText(tr("task.cmd_copy_btn")))
             ))
             cmd_row.addWidget(copy_cmd_btn)
             lay.addLayout(cmd_row)
 
-            hint = QLabel(
-                "💡 将 AutoFlow 安装目录加入系统 PATH 后，\n"
-                "可在任意位置的命令行中直接使用 <code>AutoFlow --run-task &lt;id&gt;</code>"
-            )
+            hint = QLabel(tr("task.cmd_hint"))
             hint.setTextFormat(Qt.TextFormat.RichText)
             hint.setStyleSheet("color: #6C7086; font-size: 11px;")
             lay.addWidget(hint)
 
-            close_btn = QPushButton("关闭")
+            close_btn = QPushButton(tr("btn.close"))
             close_btn.setObjectName("btn_primary")
             close_btn.clicked.connect(dlg.accept)
             btn_row = QHBoxLayout()
@@ -1617,31 +1534,27 @@ class MainWindow(QMainWindow):
         except ImportError:
             # pywin32 未安装时回退提示
             QMessageBox.warning(
-                self, "缺少依赖",
-                "创建快捷方式需要 pywin32 库。\n"
-                "请在命令行执行：pip install pywin32\n\n"
-                f"任务 ID：{task.id}\n"
-                "命令行调用方式：\n"
-                f"  AutoFlow.exe --run-task {task.id}"
+                self, tr("main.shortcut_missing_dep_title"),
+                tr("main.shortcut_missing_dep_msg").format(task_id=task.id)
             )
         except Exception as e:
-            QMessageBox.critical(self, "创建失败", f"创建桌面快捷方式时出错：\n{e}")
+            QMessageBox.critical(self, tr("main.shortcut_fail_title"), tr("main.shortcut_fail").format(err=e))
 
     def _rename_task(self, task: Task):
-        name, ok = QInputDialog.getText(self, "重命名任务", "新名称：", text=task.name)
+        name, ok = QInputDialog.getText(self, tr("dlg.rename_task"), tr("main.rename_new_name"), text=task.name)
         if ok and name.strip():
             task.name = name.strip()
             self._refresh_task_list()
             if task.id in self._task_editors:
                 self._task_editors[task.id]._name_edit.setText(task.name)
             self._mark_modified()
-            self._push_history(f"重命名任务: {task.name}")
+            self._push_history(tr("main.push_history.rename_task").format(name=task.name))
 
     def _duplicate_task(self, task: Task):
         import uuid as _uuid
         d = task.to_dict()
         d["id"]   = str(_uuid.uuid4())[:8]
-        d["name"] = task.name + "_副本"
+        d["name"] = task.name + "_" + tr("main.copy")
         new_task = Task.from_dict(d)
         self._project.tasks.append(new_task)
         self._refresh_task_list()
@@ -1649,11 +1562,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_settings_page'):
             self._settings_page.refresh_tasks(self._project.tasks)
         self._mark_modified()
-        self._push_history(f"复制任务: {new_task.name}")
+        self._push_history(tr("main.push_history.duplicate_task").format(name=new_task.name))
 
     def _delete_task(self, task: Task):
         reply = QMessageBox.question(
-            self, "删除任务", f"确认删除任务「{task.name}」？",
+            self, tr("dlg.delete_task_title"), tr("dlg.delete_task_msg").format(task.name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -1670,7 +1583,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_settings_page'):
             self._settings_page.refresh_tasks(self._project.tasks)
         self._mark_modified()
-        self._push_history(f"删除任务: {task.name}")
+        self._push_history(tr("main.push_history.delete_task").format(name=task.name))
 
     def _on_task_changed(self, task_id: str):
         self._refresh_task_list()
@@ -1680,7 +1593,7 @@ class MainWindow(QMainWindow):
             if hasattr(editor, '_block_list'):
                 editor._block_list.set_all_tasks(self._project.tasks)
         self._mark_modified()
-        self._push_history(f"编辑任务")
+        self._push_history(tr("main.push_history.edit_task"))
         self._trigger_reload_timer.start()
 
     # ─────────────────── 任务分组 ───────────────────
@@ -1688,12 +1601,12 @@ class MainWindow(QMainWindow):
     def _show_group_manager(self):
         """弹出任务分组管理对话框"""
         dlg = QDialog(self)
-        dlg.setWindowTitle("任务分组管理")
+        dlg.setWindowTitle(tr("main.groups_dlg"))
         dlg.setMinimumSize(360, 320)
         dlg.setModal(True)
         layout = QVBoxLayout(dlg)
 
-        hint = QLabel("在侧边栏任务列表上右键可以将任务移入分组")
+        hint = QLabel(tr("main.group_mgr_hint"))
         hint.setObjectName("hint")
         layout.addWidget(hint)
 
@@ -1703,26 +1616,26 @@ class MainWindow(QMainWindow):
             lst.clear()
             for grp in self._project.task_groups:
                 cnt = sum(1 for t in self._project.tasks if t.group_id == grp["id"])
-                item = QListWidgetItem(f"{grp['name']}  ({cnt} 个任务)")
+                item = QListWidgetItem(f"{grp['name']}  ({cnt} {tr('main.group_task_count')})")
                 item.setData(Qt.ItemDataRole.UserRole, grp["id"])
                 lst.addItem(item)
         _refresh_list()
         layout.addWidget(lst)
 
         btn_row = QHBoxLayout()
-        btn_add = QPushButton("+ 新建分组")
+        btn_add = QPushButton("+ " + tr("main.new_group_title"))
         btn_add.setObjectName("btn_primary")
-        btn_rename = QPushButton("重命名")
+        btn_rename = QPushButton(tr("btn.rename"))
         btn_rename.setObjectName("btn_flat")
-        btn_delete = QPushButton("删除")
+        btn_delete = QPushButton(tr("btn.delete"))
         btn_delete.setObjectName("btn_danger")
-        btn_close  = QPushButton("关闭")
+        btn_close  = QPushButton(tr("btn.close"))
         btn_row.addWidget(btn_add); btn_row.addWidget(btn_rename)
         btn_row.addWidget(btn_delete); btn_row.addStretch(); btn_row.addWidget(btn_close)
         layout.addLayout(btn_row)
 
         def _add():
-            name, ok = QInputDialog.getText(dlg, "新建分组", "分组名称：")
+            name, ok = QInputDialog.getText(dlg, tr("main.new_group_title"), tr("main.new_group_ph"))
             if not ok or not name.strip():
                 return
             import uuid as _uuid
@@ -1731,7 +1644,7 @@ class MainWindow(QMainWindow):
             _refresh_list()
             self._refresh_task_list()
             self._mark_modified()
-            self._push_history(f"新建分组: {name.strip()}")
+            self._push_history(tr("main.push_history.new_group").format(name=name.strip()))
 
         def _rename():
             item = lst.currentItem()
@@ -1741,13 +1654,13 @@ class MainWindow(QMainWindow):
             grp = next((g for g in self._project.task_groups if g["id"] == gid), None)
             if not grp:
                 return
-            name, ok = QInputDialog.getText(dlg, "重命名分组", "新名称：", text=grp["name"])
+            name, ok = QInputDialog.getText(dlg, tr("main.rename_group_title"), tr("main.rename_new_name"), text=grp["name"])
             if ok and name.strip():
                 grp["name"] = name.strip()
                 _refresh_list()
                 self._refresh_task_list()
                 self._mark_modified()
-                self._push_history(f"重命名分组: {name.strip()}")
+                self._push_history(tr("main.push_history.rename_group").format(name=name.strip()))
 
         def _delete():
             item = lst.currentItem()
@@ -1757,8 +1670,8 @@ class MainWindow(QMainWindow):
             grp = next((g for g in self._project.task_groups if g["id"] == gid), None)
             if not grp:
                 return
-            reply = QMessageBox.question(dlg, "删除分组",
-                f"删除分组「{grp['name']}」？该分组内的任务将变为未分组，不会删除。",
+            reply = QMessageBox.question(dlg, tr("main.group_ctx.delete"),
+                tr("main.delete_group_msg").format(name=grp['name']),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply != QMessageBox.StandardButton.Yes:
                 return
@@ -1769,7 +1682,7 @@ class MainWindow(QMainWindow):
             _refresh_list()
             self._refresh_task_list()
             self._mark_modified()
-            self._push_history(f"删除分组: {grp['name']}")
+            self._push_history(tr("main.push_history.delete_group").format(name=grp['name']))
 
         btn_add.clicked.connect(_add)
         btn_rename.clicked.connect(_rename)
@@ -1781,7 +1694,7 @@ class MainWindow(QMainWindow):
         grp = next((g for g in self._project.task_groups if g["id"] == gid), None)
         if not grp:
             return
-        name, ok = QInputDialog.getText(self, "重命名分组", "新名称：", text=grp["name"])
+        name, ok = QInputDialog.getText(self, tr("main.rename_group_title"), tr("main.rename_new_name"), text=grp["name"])
         if ok and name.strip():
             grp["name"] = name.strip()
             self._refresh_task_list()
@@ -1802,7 +1715,7 @@ class MainWindow(QMainWindow):
         task.group_id = gid
         self._refresh_task_list()
         self._mark_modified()
-        self._push_history(f"移动任务到分组")
+        self._push_history(tr("main.push_history.move_to_group"))
 
     def _mark_modified(self):
         self._modified = True
@@ -1882,7 +1795,7 @@ class MainWindow(QMainWindow):
 
         if task_id in self._task_editors:
             self._task_editors[task_id].set_running(True)
-        self._status_label.setText(f"正在运行: {task.name}")
+        self._status_label.setText(tr("main.task_running").format(name=task.name))
 
         # 手动运行时，根据设置决定是否最小化主窗口
         if getattr(self._project.config, 'minimize_on_run', False) and not trigger_vars:
@@ -1927,7 +1840,7 @@ class MainWindow(QMainWindow):
         )
         self._runners[tmp_id] = runner
         runner.start()
-        self._status_label.setText(f"单块运行: {task.name} → {block.block_type}")
+        self._status_label.setText(tr("main.single_block_running").format(name=task.name, bt=block.block_type))
 
     def _run_from_block(self, task_id: str, start_idx: int):
         """从指定索引开始运行任务的剩余块"""
@@ -1962,7 +1875,7 @@ class MainWindow(QMainWindow):
         )
         self._runners[tmp_id] = runner
         runner.start()
-        self._status_label.setText(f"从第{start_idx+1}块运行: {task.name}")
+        self._status_label.setText(tr("main.run_from_block").format(idx=start_idx+1, name=task.name))
 
     def _on_task_finished(self, task_id: str, success: bool):
         self._runners.pop(task_id, None)
@@ -1971,11 +1884,11 @@ class MainWindow(QMainWindow):
             self._task_editors[task_id].set_running(False)
         name = task.name if task else task_id
         if success:
-            self._status_label.setText(f"[OK] {name} 已完成")
-            show_toast(self, f"✅ {name} 已完成", color="#A6E3A1", duration_ms=2000)
+            self._status_label.setText(tr("main.task_done").format(name=name))
+            show_toast(self, tr("toast.task_done").format(name), color="#A6E3A1", duration_ms=2000)
         else:
-            self._status_label.setText(f"[STOP] {name} 已停止")
-            show_toast(self, f"🛑 {name} 已停止", color="#F38BA8", duration_ms=2000)
+            self._status_label.setText(tr("main.task_stopped").format(name=name))
+            show_toast(self, tr("toast.task_stopped").format(name), color="#F38BA8", duration_ms=2000)
 
     # ─────────────────── 触发器 ───────────────────
 
@@ -2030,13 +1943,13 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.hide()
             self._tray.showMessage(
-                "AutoFlow", "程序已最小化到托盘，触发器继续运行中。",
+                "AutoFlow", tr("main.tray_minimized_msg"),
                 QSystemTrayIcon.MessageIcon.Information, 2000
             )
         else:
             if self._modified:
                 reply = QMessageBox.question(
-                    self, "退出", "有未保存的更改，退出前是否保存？",
+                    self, tr("main.quit_title"), tr("main.quit_msg"),
                     QMessageBox.StandardButton.Save |
                     QMessageBox.StandardButton.Discard |
                     QMessageBox.StandardButton.Cancel
@@ -2139,7 +2052,7 @@ class MainWindow(QMainWindow):
         for tid in running:
             task = next((t for t in self._project.tasks if t.id == tid), None)
             names.append(task.name if task else tid)
-        msg = f"🛑 已强制终止: {', '.join(names)}"
+        msg = tr("toast.force_stopped").format(", ".join(names))
         self._status_label.setText(msg)
         logger.info(msg)
 
@@ -2235,7 +2148,7 @@ class MainWindow(QMainWindow):
         """在状态栏显示「发现新版本」按钮，点击打开 UpdateDialog"""
         if not hasattr(self, "_update_tip_btn"):
             from PyQt6.QtWidgets import QPushButton as _QPB
-            _btn = _QPB(f"🎉 发现新版本 {tag}，点此查看")
+            _btn = _QPB(tr("main.update_tip").format(tag=tag))
             _btn.setFlat(True)
             _btn.setStyleSheet(
                 "QPushButton { color:#4ade80; font-size:11px; padding:0 8px; "
@@ -2244,7 +2157,7 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().addPermanentWidget(_btn)
             self._update_tip_btn = _btn
-        self._update_tip_btn.setText(f"🎉 发现新版本 {tag}，点此查看")
+        self._update_tip_btn.setText(tr("main.update_tip").format(tag=tag))
         self._update_tip_btn.setVisible(True)
         # 断开旧连接，绑定最新 result
         try:
@@ -2317,10 +2230,10 @@ class _AnnouncementDialog(QDialog):
         "warning":   "#FAB387",
         "important": "#F38BA8",
     }
-    _LEVEL_LABELS = {
-        "info":      "📢 公告",
-        "warning":   "⚠️ 注意",
-        "important": "🔔 重要",
+    _LEVEL_LABEL_KEYS = {
+        "info":      "main.ann.level_info",
+        "warning":   "main.ann.level_warning",
+        "important": "main.ann.level_important",
     }
 
     def __init__(self, announcements: list, read_ids: list, parent=None):
@@ -2328,7 +2241,7 @@ class _AnnouncementDialog(QDialog):
         self._announcements = announcements
         self._read_ids = read_ids
         self._idx = 0
-        self.setWindowTitle("AutoFlow 公告")
+        self.setWindowTitle("AutoFlow " + tr("main.announcement_dlg_title"))
         self.setMinimumWidth(480)
         self.setMinimumHeight(300)
         self.setModal(True)
@@ -2375,25 +2288,25 @@ class _AnnouncementDialog(QDialog):
         # 底部按钮行
         btn_row = QHBoxLayout()
 
-        self._prev_btn = QPushButton("◀ 上一条")
+        self._prev_btn = QPushButton(tr("main.ann.prev"))
         self._prev_btn.setFixedWidth(90)
         self._prev_btn.clicked.connect(lambda: self._load_page(self._idx - 1))
         btn_row.addWidget(self._prev_btn)
 
-        self._next_btn = QPushButton("下一条 ▶")
+        self._next_btn = QPushButton(tr("main.ann.next"))
         self._next_btn.setFixedWidth(90)
         self._next_btn.clicked.connect(lambda: self._load_page(self._idx + 1))
         btn_row.addWidget(self._next_btn)
 
         btn_row.addStretch()
 
-        self._detail_btn = QPushButton("🔗 查看详情")
+        self._detail_btn = QPushButton(tr("main.ann.detail"))
         self._detail_btn.setMinimumWidth(100)
         self._detail_btn.setVisible(False)
         self._detail_btn.clicked.connect(self._open_detail)
         btn_row.addWidget(self._detail_btn)
 
-        close_btn = QPushButton("✓ 我知道了")
+        close_btn = QPushButton(tr("main.ann.ok"))
         close_btn.setMinimumWidth(100)
         close_btn.setDefault(True)
         close_btn.clicked.connect(self.accept)
@@ -2410,19 +2323,20 @@ class _AnnouncementDialog(QDialog):
 
         level = ann.get("level", "info")
         color = self._LEVEL_COLORS.get(level, "#89B4FA")
-        level_text = self._LEVEL_LABELS.get(level, "📢 公告")
+        level_key = self._LEVEL_LABEL_KEYS.get(level, "main.ann.level_info")
+        level_text = tr(level_key)
 
         self._level_lbl.setText(level_text)
         self._level_lbl.setStyleSheet(
             f"font-size: 14px; font-weight: bold; color: {color};"
         )
         self._page_lbl.setText(f"{idx + 1} / {n}")
-        self._title_lbl.setText(ann.get("title", "（无标题）"))
+        self._title_lbl.setText(ann.get("title", "（" + tr("main.ann.no_title") + "）"))
         self._title_lbl.setStyleSheet(
             f"font-size: 16px; font-weight: bold; color: {color};"
         )
         date_str = ann.get("date", "")
-        self._date_lbl.setText(f"发布时间：{date_str}" if date_str else "")
+        self._date_lbl.setText(f"{tr('main.ann.date_prefix')}{date_str}" if date_str else "")
         self._date_lbl.setVisible(bool(date_str))
         self._body_edit.setPlainText(ann.get("body", ""))
 

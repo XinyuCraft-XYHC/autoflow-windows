@@ -151,8 +151,8 @@ class SettingsPage(QWidget):
         gf2.addRow("", self._minimize_cb)
         self._show_log_cb = QCheckBox(tr("settings.show_log"))
         gf2.addRow("", self._show_log_cb)
-        self._minimize_on_run_cb = QCheckBox("任务运行时最小化工具窗口")
-        self._minimize_on_run_cb.setToolTip("每次手动点击[运行]时，自动最小化 AutoFlow 主窗口（触发器自动触发的任务不受此影响）")
+        self._minimize_on_run_cb = QCheckBox(tr("settings.minimize_on_run"))
+        self._minimize_on_run_cb.setToolTip(tr("settings.minimize_on_run_tip"))
         gf2.addRow("", self._minimize_on_run_cb)
         layout.addWidget(self._grp_ui)
 
@@ -236,17 +236,17 @@ class SettingsPage(QWidget):
         
         # SMTP 预设选择
         self._smtp_preset = QComboBox()
-        self._smtp_preset.addItem("自定义", "custom")
-        self._smtp_preset.addItem("QQ邮箱", "qq")
-        self._smtp_preset.addItem("163邮箱", "163")
-        self._smtp_preset.addItem("126邮箱", "126")
+        self._smtp_preset.addItem(tr("settings.email_preset_custom"), "custom")
+        self._smtp_preset.addItem(tr("settings.email_qq"), "qq")
+        self._smtp_preset.addItem(tr("settings.email_163"), "163")
+        self._smtp_preset.addItem(tr("settings.email_126"), "126")
         self._smtp_preset.addItem("Gmail", "gmail")
         self._smtp_preset.addItem("Outlook/Hotmail", "outlook")
-        self._smtp_preset.addItem("企业邮箱（腾讯）", "exmail")
-        self._smtp_preset.addItem("阿里云企业邮箱", "aliyun")
-        self._smtp_preset.addItem("腾讯企业邮箱", "tencent")
+        self._smtp_preset.addItem(tr("settings.email_exmail"), "exmail")
+        self._smtp_preset.addItem(tr("settings.email_aliyun"), "aliyun")
+        self._smtp_preset.addItem(tr("settings.email_tencent"), "tencent")
         self._smtp_preset.currentIndexChanged.connect(self._on_smtp_preset_changed)
-        sf.addRow("预设配置", self._smtp_preset)
+        sf.addRow(tr("settings.email_preset_label"), self._smtp_preset)
         
         self._smtp_server = QLineEdit(); sf.addRow(tr("settings.smtp.server"), self._smtp_server)
         self._smtp_port   = FocusSpinBox(); self._smtp_port.setRange(1,65535); sf.addRow(tr("settings.smtp.port"), self._smtp_port)
@@ -266,17 +266,17 @@ class SettingsPage(QWidget):
         
         # IMAP 预设选择
         self._imap_preset = QComboBox()
-        self._imap_preset.addItem("自定义", "custom")
-        self._imap_preset.addItem("QQ邮箱", "qq")
-        self._imap_preset.addItem("163邮箱", "163")
-        self._imap_preset.addItem("126邮箱", "126")
+        self._imap_preset.addItem(tr("settings.email_preset_custom"), "custom")
+        self._imap_preset.addItem(tr("settings.email_qq"), "qq")
+        self._imap_preset.addItem(tr("settings.email_163"), "163")
+        self._imap_preset.addItem(tr("settings.email_126"), "126")
         self._imap_preset.addItem("Gmail", "gmail")
         self._imap_preset.addItem("Outlook/Hotmail", "outlook")
-        self._imap_preset.addItem("企业邮箱（腾讯）", "exmail")
-        self._imap_preset.addItem("阿里云企业邮箱", "aliyun")
-        self._imap_preset.addItem("腾讯企业邮箱", "tencent")
+        self._imap_preset.addItem(tr("settings.email_exmail"), "exmail")
+        self._imap_preset.addItem(tr("settings.email_aliyun"), "aliyun")
+        self._imap_preset.addItem(tr("settings.email_tencent"), "tencent")
         self._imap_preset.currentIndexChanged.connect(self._on_imap_preset_changed)
-        imf.addRow("预设配置", self._imap_preset)
+        imf.addRow(tr("settings.email_preset_label"), self._imap_preset)
         
         self._imap_server = QLineEdit(); imf.addRow(tr("settings.imap.server"), self._imap_server)
         self._imap_port   = FocusSpinBox(); self._imap_port.setRange(1,65535); imf.addRow(tr("settings.imap.port"), self._imap_port)
@@ -457,9 +457,7 @@ class SettingsPage(QWidget):
         self._lang_market_btn.clicked.connect(self._open_language_market)
         lang_market_row.addWidget(self._lang_market_btn)
         lang_market_row.addStretch()
-        self._lang_market_hint = QLabel(
-            tr("settings.lang_market_hint",
-               "从社区下载更多语言包（日语、韩语、法语等）"))
+        self._lang_market_hint = QLabel(tr("settings.lang_market_hint"))
         self._lang_market_hint.setObjectName("hint")
         lang_market_row.addWidget(self._lang_market_hint)
         gf_lang.addRow("", lang_market_row)
@@ -489,80 +487,32 @@ class SettingsPage(QWidget):
         self._theme_hint.setObjectName("hint")
         layout.addWidget(self._theme_hint)
 
-        # ── 自定义背景 ──
-        self._grp_bg = QGroupBox("自定义背景")
-        gf_bg = QFormLayout(self._grp_bg)
-        gf_bg.setSpacing(10)
-
-        # 背景图路径
-        bg_row = QHBoxLayout()
-        self._bg_path_edit = QLineEdit()
-        self._bg_path_edit.setPlaceholderText("选择图片/GIF（留空则不使用背景）")
-        bg_row.addWidget(self._bg_path_edit)
-        self._bg_browse_btn = QPushButton("浏览")
-        self._bg_browse_btn.setFixedHeight(26)
-        self._bg_browse_btn.setMinimumWidth(52)
-        self._bg_browse_btn.clicked.connect(self._browse_bg_image)
-        bg_row.addWidget(self._bg_browse_btn)
-        self._bg_clear_btn = QPushButton("清除")
-        self._bg_clear_btn.setFixedHeight(26)
-        self._bg_clear_btn.setMinimumWidth(52)
-        self._bg_clear_btn.setObjectName("btn_flat")
-        self._bg_clear_btn.clicked.connect(lambda: self._bg_path_edit.clear())
-        bg_row.addWidget(self._bg_clear_btn)
-        gf_bg.addRow("背景图/GIF：", bg_row)
-
-        # 背景透明度
-        self._bg_opacity_spin = FocusDoubleSpinBox()
-        self._bg_opacity_spin.setRange(0.0, 1.0)
-        self._bg_opacity_spin.setSingleStep(0.05)
-        self._bg_opacity_spin.setDecimals(2)
-        self._bg_opacity_spin.setValue(0.15)
-        self._bg_opacity_spin.setFixedWidth(90)
-        gf_bg.addRow("透明度（0~1）：", self._bg_opacity_spin)
-
-        # 背景模式
-        self._bg_mode_combo = QComboBox()
-        self._bg_mode_combo.addItem("铺满（填充裁剪）", "fill")
-        self._bg_mode_combo.addItem("适应（保持比例）", "contain")
-        self._bg_mode_combo.addItem("居中", "center")
-        self._bg_mode_combo.addItem("平铺", "tile")
-        self._bg_mode_combo.setFixedWidth(160)
-        gf_bg.addRow("显示模式：", self._bg_mode_combo)
-
-        _bg_hint = QLabel("支持 PNG/JPG/WEBP/GIF（动图）。背景仅在主窗口显示，不影响功能。")
-        _bg_hint.setObjectName("hint")
-        _bg_hint.setWordWrap(True)
-        gf_bg.addRow("", _bg_hint)
-
-        layout.addWidget(self._grp_bg)
-
         # ── 自定义字体 ──
-        self._grp_font = QGroupBox("自定义字体")
+        self._grp_font = QGroupBox(tr("settings.grp.font"))
         gf_font = QFormLayout(self._grp_font)
         gf_font.setSpacing(10)
 
         font_row = QHBoxLayout()
         self._font_family_edit = QLineEdit()
-        self._font_family_edit.setPlaceholderText("字体名称，如 微软雅黑（留空=主题默认）")
+        self._font_family_edit.setPlaceholderText(tr("settings.font_name_ph"))
         font_row.addWidget(self._font_family_edit)
-        self._font_file_btn = QPushButton("载入字体文件")
+        self._font_file_btn = QPushButton(tr("settings.font_load_btn"))
         self._font_file_btn.setFixedHeight(26)
         self._font_file_btn.setMinimumWidth(90)
         self._font_file_btn.setObjectName("btn_flat")
         self._font_file_btn.clicked.connect(self._load_font_file)
         font_row.addWidget(self._font_file_btn)
-        gf_font.addRow("字体名称：", font_row)
+        gf_font.addRow(tr("settings.font_name_label"), font_row)
 
         self._font_size_spin = FocusSpinBox()
         self._font_size_spin.setRange(0, 32)
         self._font_size_spin.setValue(0)
-        self._font_size_spin.setSpecialValueText("默认（13px）")
-        self._font_size_spin.setSuffix(" px")
+        self._font_size_spin.setSpecialValueText(tr("settings.font_size_default"))
+        self._font_size_spin.setSuffix(tr("settings.font_size_suffix"))
         self._font_size_spin.setFixedWidth(120)
-        gf_font.addRow("字体大小：", self._font_size_spin)
+        gf_font.addRow(tr("settings.font_size_label"), self._font_size_spin)
 
-        _font_hint = QLabel("载入 TTF/OTF 文件后，字体名称会自动填入。重启后方可见全局效果。")
+        _font_hint = QLabel(tr("settings.font_hint"))
         _font_hint.setObjectName("hint")
         _font_hint.setWordWrap(True)
         gf_font.addRow("", _font_hint)
@@ -570,29 +520,24 @@ class SettingsPage(QWidget):
         layout.addWidget(self._grp_font)
 
         # ── 自定义配色 ──
-        self._grp_palette = QGroupBox("自定义配色（调色板覆盖）")
+        self._grp_palette = QGroupBox(tr("settings.grp.palette"))
         gf_pal = QVBoxLayout(self._grp_palette)
         gf_pal.setSpacing(8)
 
-        _pal_hint = QLabel(
-            "覆盖当前主题的颜色变量。输入 key=颜色值（#RRGGBB），每行一个。\n"
-            "可用 key：bg0 bg1 bg2 bg3 bg4 accent accent2 success warn danger fg0 fg1 fg2"
-        )
+        _pal_hint = QLabel(tr("settings.palette_hint"))
         _pal_hint.setObjectName("hint")
         _pal_hint.setWordWrap(True)
         gf_pal.addWidget(_pal_hint)
 
         from PyQt6.QtWidgets import QPlainTextEdit
         self._palette_override_edit = QPlainTextEdit()
-        self._palette_override_edit.setPlaceholderText(
-            "示例：\naccent=#FF6B6B\nbg0=#121212\nfg0=#FFFFFF"
-        )
+        self._palette_override_edit.setPlaceholderText(tr("settings.palette_ph"))
         self._palette_override_edit.setFixedHeight(100)
         self._palette_override_edit.setObjectName("code_edit")
         gf_pal.addWidget(self._palette_override_edit)
 
         pal_btn_row = QHBoxLayout()
-        self._pal_reset_btn = QPushButton("清空覆盖")
+        self._pal_reset_btn = QPushButton(tr("settings.palette_reset_btn"))
         self._pal_reset_btn.setObjectName("btn_flat")
         self._pal_reset_btn.setFixedHeight(26)
         self._pal_reset_btn.clicked.connect(lambda: self._palette_override_edit.clear())
@@ -603,25 +548,22 @@ class SettingsPage(QWidget):
         layout.addWidget(self._grp_palette)
 
         # ── 整合包 ──
-        self._grp_pack = QGroupBox("主题整合包（.aftheme）")
+        self._grp_pack = QGroupBox(tr("settings.grp.theme_pack"))
         gf_pack = QVBoxLayout(self._grp_pack)
         gf_pack.setSpacing(8)
 
-        _pack_hint = QLabel(
-            "整合包将背景/字体/配色打包为单个文件，方便分享与切换。\n"
-            "导入后，整合包的设置优先级低于上方的单独配置。"
-        )
+        _pack_hint = QLabel(tr("settings.pack_hint"))
         _pack_hint.setObjectName("hint")
         _pack_hint.setWordWrap(True)
         gf_pack.addWidget(_pack_hint)
 
         # 当前加载的整合包
         pack_cur_row = QHBoxLayout()
-        self._pack_cur_lbl = QLabel("未加载整合包")
+        self._pack_cur_lbl = QLabel(tr("settings.theme_pack_none"))
         self._pack_cur_lbl.setObjectName("hint")
         pack_cur_row.addWidget(self._pack_cur_lbl)
         pack_cur_row.addStretch()
-        self._pack_unload_btn = QPushButton("卸载")
+        self._pack_unload_btn = QPushButton(tr("settings.theme_pack_unload_btn"))
         self._pack_unload_btn.setObjectName("btn_flat")
         self._pack_unload_btn.setFixedHeight(26)
         self._pack_unload_btn.setMinimumWidth(52)
@@ -630,19 +572,19 @@ class SettingsPage(QWidget):
         gf_pack.addLayout(pack_cur_row)
 
         pack_btn_row = QHBoxLayout()
-        self._pack_import_btn = QPushButton("📦 导入整合包")
+        self._pack_import_btn = QPushButton("📦 " + tr("settings.theme_pack_import_btn"))
         self._pack_import_btn.setObjectName("btn_flat")
         self._pack_import_btn.setFixedHeight(28)
         self._pack_import_btn.clicked.connect(self._import_theme_pack)
         pack_btn_row.addWidget(self._pack_import_btn)
 
-        self._pack_export_btn = QPushButton("💾 导出整合包")
+        self._pack_export_btn = QPushButton("💾 " + tr("settings.theme_pack_export_btn"))
         self._pack_export_btn.setObjectName("btn_flat")
         self._pack_export_btn.setFixedHeight(28)
         self._pack_export_btn.clicked.connect(self._export_theme_pack)
         pack_btn_row.addWidget(self._pack_export_btn)
 
-        self._pack_market_btn = QPushButton("🌐 主题市场")
+        self._pack_market_btn = QPushButton("🌐 " + tr("settings.theme_market_btn"))
         self._pack_market_btn.setObjectName("btn_flat")
         self._pack_market_btn.setFixedHeight(28)
         self._pack_market_btn.clicked.connect(self._open_theme_market)
@@ -714,7 +656,7 @@ class SettingsPage(QWidget):
                     )
                     self._theme_preview.setText(
                         f"<b style='color:{p['accent']}'>{pack.name}</b>  "
-                        f"<span style='color:{p['fg2']}'>整合包预览</span>"
+                        f"<span style='color:{p['fg2']}'>{tr('settings.theme_pack_preview')}</span>"
                     )
                     return
             except Exception:
@@ -734,25 +676,17 @@ class SettingsPage(QWidget):
         name   = p["name"]
         self._theme_preview.setText(
             f"<b style='color:{accent}'>{name}</b>  "
-            f"<span style='color:{fg2}'>预览</span>"
+            f"<span style='color:{fg2}'>{tr('settings.theme_preview')}</span>"
         )
-
-    def _browse_bg_image(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择背景图片",
-            os.path.expanduser("~"),
-            "图片/动图 (*.png *.jpg *.jpeg *.webp *.gif)"
-        )
-        if path:
-            self._bg_path_edit.setText(path)
 
     def _load_font_file(self):
         """导入字体文件并自动注册，回填字体名称"""
         path, _ = QFileDialog.getOpenFileName(
-            self, "选择字体文件",
+            self, tr("settings.font_load_btn"),
             os.path.expanduser("~"),
-            "字体文件 (*.ttf *.otf *.woff *.woff2)"
+            tr("settings.font_filter")
         )
+        # 字体文件过滤器不需要 tr()，因为 QFileDialog 过滤器字符串在本地化时通常保留
         if not path:
             return
         try:
@@ -760,18 +694,20 @@ class SettingsPage(QWidget):
             family = register_font(path)
             if family:
                 self._font_family_edit.setText(family)
-                QMessageBox.information(self, "字体载入成功", f"字体 {family} 已注册。\n保存设置后生效。")
+                QMessageBox.information(self, tr("settings.font_load_ok_title"),
+                                        tr("settings.font_load_ok_msg", family=family))
             else:
-                QMessageBox.warning(self, "字体载入失败", "未能从字体文件中读取字体名称。")
+                QMessageBox.warning(self, tr("settings.font_load_fail_title"),
+                                    tr("settings.font_load_fail_msg"))
         except Exception as e:
-            QMessageBox.warning(self, "字体载入失败", str(e))
+            QMessageBox.warning(self, tr("settings.font_load_fail_title"), str(e))
 
     def _import_theme_pack(self):
         """导入 .aftheme 整合包"""
         path, _ = QFileDialog.getOpenFileName(
-            self, "导入主题整合包",
+            self, tr("settings.pack_import_dlg_title"),
             os.path.expanduser("~"),
-            "AutoFlow 主题包 (*.aftheme)"
+            tr("settings.pack_filter")
         )
         if not path:
             return
@@ -782,27 +718,27 @@ class SettingsPage(QWidget):
             self.config.theme_pack_path = pack.id
             self._refresh_pack_label()
             QMessageBox.information(
-                self, "导入成功",
-                f"整合包「{pack.name}」导入成功！\n保存设置后即可应用。"
+                self, tr("settings.pack_import_ok_title"),
+                tr("settings.pack_import_ok_msg").format(name=pack.name)
             )
         except Exception as e:
-            QMessageBox.warning(self, "导入失败", str(e))
+            QMessageBox.warning(self, tr("settings.pack_import_fail_title"), str(e))
 
     def _export_theme_pack(self):
         """将当前主题配置导出为 .aftheme 整合包"""
         from PyQt6.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getText(self, "导出整合包", "整合包名称：", text="我的主题")
+        name, ok = QInputDialog.getText(self, tr("settings.pack_export_title"), tr("settings.pack_export_name_label"), text=tr("settings.pack_export_name_default"))
         if not ok or not name.strip():
             return
-        pack_id, ok2 = QInputDialog.getText(self, "导出整合包", "整合包 ID（英文）：",
+        pack_id, ok2 = QInputDialog.getText(self, tr("settings.pack_export_title"), tr("settings.pack_export_id_label"),
                                              text="my_theme")
         if not ok2 or not pack_id.strip():
             return
 
         out_path, _ = QFileDialog.getSaveFileName(
-            self, "保存整合包",
+            self, tr("settings.pack_save_title"),
             os.path.join(os.path.expanduser("~"), f"{pack_id.strip()}.aftheme"),
-            "AutoFlow 主题包 (*.aftheme)"
+            tr("settings.pack_filter")
         )
         if not out_path:
             return
@@ -833,15 +769,16 @@ class SettingsPage(QWidget):
                 bg_mode=self._bg_mode_combo.currentData() or "fill",
                 out_path=out_path,
             )
-            QMessageBox.information(self, "导出成功", f"整合包已保存到：\n{out_path}")
+            QMessageBox.information(self, tr("settings.pack_export_ok_title"),
+                                    tr("settings.pack_export_ok_msg").format(path=out_path))
         except Exception as e:
-            QMessageBox.warning(self, "导出失败", str(e))
+            QMessageBox.warning(self, tr("settings.pack_export_fail_title"), str(e))
 
     def _unload_theme_pack(self):
         """卸载当前整合包"""
         self.config.theme_pack_path = ""
         self._refresh_pack_label()
-        QMessageBox.information(self, "已卸载", "整合包已卸载，保存设置后生效。")
+        QMessageBox.information(self, tr("settings.pack_unload_ok_title"), tr("settings.pack_unload_ok_msg"))
 
     def _refresh_pack_label(self):
         """刷新当前整合包标签"""
@@ -851,13 +788,13 @@ class SettingsPage(QWidget):
                 from .theme_manager import get_installed_pack
                 pack = get_installed_pack(pack_id)
                 if pack:
-                    self._pack_cur_lbl.setText(f"已加载：{pack.name}（{pack.id}）v{pack.version}")
+                    self._pack_cur_lbl.setText(tr("settings.theme_pack_loaded", pack_id=f"{pack.name}（{pack.id}）v{pack.version}"))
                     return
             except Exception:
                 pass
-            self._pack_cur_lbl.setText(f"已加载：{pack_id}")
+            self._pack_cur_lbl.setText(tr("settings.theme_pack_loaded", pack_id=pack_id))
         else:
-            self._pack_cur_lbl.setText("未加载整合包")
+            self._pack_cur_lbl.setText(tr("settings.theme_pack_none"))
 
     def _open_theme_market(self):
         """打开主题市场对话框"""
@@ -901,8 +838,8 @@ class SettingsPage(QWidget):
         # 键鼠宏停止录制
         self._macro_stop_hotkey = HotkeyEdit()
         self._macro_stop_hotkey.setFixedWidth(200)
-        gf_custom.addRow("停止录制热键", self._macro_stop_hotkey)
-        _macro_stop_hint = QLabel("录制键鼠宏时，按此键停止录制（最小化窗口后仍有效，默认 F10）")
+        gf_custom.addRow(tr("settings.macro_stop_hotkey_label"), self._macro_stop_hotkey)
+        _macro_stop_hint = QLabel(tr("settings.macro_stop_hotkey_hint"))
         _macro_stop_hint.setObjectName("hint")
         _macro_stop_hint.setWordWrap(True)
         gf_custom.addRow("", _macro_stop_hint)
@@ -927,16 +864,16 @@ class SettingsPage(QWidget):
 
         HOTKEYS = [
             # 分类,  快捷键,           说明
-            ("项目",  "Ctrl+N",         "新建项目"),
-            ("项目",  "Ctrl+O",         "打开项目"),
-            ("项目",  "Ctrl+S",         "保存项目"),
-            ("项目",  "Ctrl+Shift+S",   "另存为"),
-            ("项目",  "Ctrl+W",         "关闭项目"),
-            ("任务",  "Ctrl+T",         "新建任务"),
-            ("编辑",  "Ctrl+Z",         "撤回"),
-            ("编辑",  "Ctrl+Y",         "重做"),
-            ("编辑",  "Ctrl+Shift+Z",   "重做（备选）"),
-            ("编辑",  "Ctrl+H",         "操作历史"),
+            (tr("settings.hotkey.cat_project"),  "Ctrl+N",         tr("settings.hotkey.new_project")),
+            (tr("settings.hotkey.cat_project"),  "Ctrl+O",         tr("settings.hotkey.open_project")),
+            (tr("settings.hotkey.cat_project"),  "Ctrl+S",         tr("settings.hotkey.save_project")),
+            (tr("settings.hotkey.cat_project"),  "Ctrl+Shift+S",   tr("settings.hotkey.save_as")),
+            (tr("settings.hotkey.cat_project"),  "Ctrl+W",         tr("settings.hotkey.close_project")),
+            (tr("settings.hotkey.cat_task"),     "Ctrl+T",         tr("settings.hotkey.new_task")),
+            (tr("settings.hotkey.cat_edit"),     "Ctrl+Z",         tr("settings.hotkey.undo")),
+            (tr("settings.hotkey.cat_edit"),     "Ctrl+Y",         tr("settings.hotkey.redo")),
+            (tr("settings.hotkey.cat_edit"),     "Ctrl+Shift+Z",   tr("settings.hotkey.redo_alt")),
+            (tr("settings.hotkey.cat_edit"),     "Ctrl+H",         tr("settings.hotkey.history")),
         ]
 
         tbl = QTableWidget(len(HOTKEYS), 3)
@@ -991,26 +928,26 @@ class SettingsPage(QWidget):
              "",
              "gpt-4o-mini",
              "sk-xxxxxxxx（platform.openai.com/api-keys）"),
-            ("deepseek",  "DeepSeek（深度求索）",
+            ("deepseek",  tr("settings.ai_provider.deepseek", "DeepSeek"),
              "https://api.deepseek.com/v1",
              "deepseek-chat",
              "sk-xxxxxxxx（platform.deepseek.com）"),
-            ("kimi",      "Kimi（月之暗面 Moonshot）",
+            ("kimi",      tr("settings.ai_provider.kimi", "Kimi (Moonshot)"),
              "https://api.moonshot.cn/v1",
              "moonshot-v1-8k",
              "sk-xxxxxxxx（platform.moonshot.cn）"),
-            ("qwen",      "通义千问 (Qwen / 阿里云)",
+            ("qwen",      tr("settings.ai_provider.qwen", "Qwen / Alibaba Cloud"),
              "https://dashscope.aliyuncs.com/compatible-mode/v1",
              "qwen-plus",
              "sk-xxxxxxxx（dashscope.aliyun.com）"),
-            ("zhipu",     "智谱 AI (GLM / ChatGLM)",
+            ("zhipu",     tr("settings.ai_provider.zhipu", "Zhipu AI (GLM)"),
              "https://open.bigmodel.cn/api/paas/v4",
              "glm-4-flash",
              "xxxxxxxx.xxxxxxxx（open.bigmodel.cn）"),
-            ("baidu",     "百度文心 (ERNIE / 千帆)",
+            ("baidu",     tr("settings.ai_provider.baidu", "Baidu ERNIE"),
              "https://qianfan.baidubce.com/v2",
              "ernie-4.5-8k",
-             "（百度智能云控制台获取 API Key）"),
+             tr("settings.ai_key_hint.baidu", "(Get API Key from Baidu AI Cloud)")),
             ("claude",    "Anthropic Claude",
              "https://api.anthropic.com/v1",
              "claude-3-5-haiku-20241022",
@@ -1019,15 +956,15 @@ class SettingsPage(QWidget):
              "https://generativelanguage.googleapis.com/v1beta/openai",
              "gemini-2.0-flash",
              "AIza...（aistudio.google.com/apikey）"),
-            ("ollama",    "Ollama（本地模型）",
+            ("ollama",    tr("settings.ai_provider.ollama", "Ollama (Local)"),
              "http://localhost:11434/v1",
              "llama3",
-             "ollama（不需要真实 Key，填 ollama 即可）"),
+             tr("settings.ai_key_hint.ollama", "ollama (no real key needed, fill in ollama)")),
             ("azure",     "Azure OpenAI",
              "",
              "",
-             "（Azure 门户 → 密钥和终结点）"),
-            ("custom",    "自定义（兼容 OpenAI 接口）",
+             tr("settings.ai_key_hint.azure", "(Azure Portal → Keys and Endpoint)")),
+            ("custom",    tr("settings.ai_provider.custom", "Custom (OpenAI-compatible)"),
              "",
              "",
              ""),
@@ -1040,12 +977,12 @@ class SettingsPage(QWidget):
         gf_model.addRow(tr("settings.ai_provider"), self._ai_provider)
 
         self._ai_model = QLineEdit()
-        self._ai_model.setPlaceholderText("如 gpt-4o-mini / deepseek-chat / moonshot-v1-8k")
+        self._ai_model.setPlaceholderText(tr("settings.ai_model_ph", "e.g. gpt-4o-mini / deepseek-chat"))
         gf_model.addRow(tr("settings.ai_model_name"), self._ai_model)
 
         # 快速选择模型下拉（根据服务商动态更新）
         self._ai_model_preset = QComboBox()
-        self._ai_model_preset.setToolTip("点击快速选择常用模型（也可手动填写上方输入框）")
+        self._ai_model_preset.setToolTip(tr("settings.ai_model_preset_tip", "Click to select a recommended model"))
         self._ai_model_preset.currentTextChanged.connect(
             lambda t: self._ai_model.setText(t) if t and not t.startswith("—") else None
         )
@@ -1053,7 +990,7 @@ class SettingsPage(QWidget):
 
         self._ai_api_key = QLineEdit()
         self._ai_api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._ai_api_key.setPlaceholderText("填入 API Key（sk-xxxxxxxx...）")
+        self._ai_api_key.setPlaceholderText(tr("settings.ai_key_ph", "Enter API Key (sk-xxxxxxxx...)"))
         gf_model.addRow(tr("settings.ai_api_key"), self._ai_api_key)
 
         # 显示/隐藏 API Key
@@ -1067,7 +1004,7 @@ class SettingsPage(QWidget):
 
         self._ai_base_url = QLineEdit()
         self._ai_base_url.setPlaceholderText(
-            "留空=自动使用官方地址  /  自定义: https://your-proxy/v1"
+            tr("settings.ai_base_url_ph")
         )
         gf_model.addRow(tr("settings.ai_base_url"), self._ai_base_url)
 
@@ -1110,17 +1047,12 @@ class SettingsPage(QWidget):
         self._grp_ai_system = QGroupBox(tr("settings.grp.ai_system"))
         gf_sys  = QVBoxLayout(self._grp_ai_system)
         gf_sys.setContentsMargins(8, 8, 8, 8)
-        self._ai_system_prompt = QLineEdit()
-        self._ai_system_prompt.setPlaceholderText(
-            "留空=无系统提示词  /  也可在功能块中单独设置"
-        )
         # 使用多行文本
         from PyQt6.QtWidgets import QTextEdit
         self._ai_system_prompt_edit = QTextEdit()
         self._ai_system_prompt_edit.setFixedHeight(80)
         self._ai_system_prompt_edit.setPlaceholderText(
-            "可选。例如：你是一个专业的代码助手，请用中文回答。\n"
-            "每个功能块也可以单独设置系统提示词（会覆盖此处设置）。"
+            tr("settings.ai_system_prompt_ph")
         )
         gf_sys.addWidget(self._ai_system_prompt_edit)
         layout.addWidget(self._grp_ai_system)
@@ -1137,16 +1069,12 @@ class SettingsPage(QWidget):
         sep_bu = _QFrame(); sep_bu.setFrameShape(_QFrame.Shape.HLine)
         layout.addWidget(sep_bu)
 
-        self._grp_browser_auto = QGroupBox("🌐 AI 浏览器自动化（browser-use）")
+        self._grp_browser_auto = QGroupBox(tr("settings.ai_browser_grp"))
         gf_bu = QVBoxLayout(self._grp_browser_auto)
         gf_bu.setSpacing(8)
         gf_bu.setContentsMargins(8, 8, 8, 8)
 
-        bu_hint = QLabel(
-            "基于开源项目 <a href='https://github.com/browser-use/browser-use'>browser-use</a>（MIT License），"
-            "让 AI 以自然语言操控浏览器自动完成网页任务。\n"
-            "使用前需安装依赖：<b>pip install browser-use</b>  然后运行：<b>playwright install chromium</b>"
-        )
+        bu_hint = QLabel(tr("settings.ai_browser_hint"))
         bu_hint.setObjectName("hint")
         bu_hint.setWordWrap(True)
         bu_hint.setOpenExternalLinks(True)
@@ -1155,18 +1083,18 @@ class SettingsPage(QWidget):
 
         # 安装检测 + 一键安装按钮
         btn_row = QHBoxLayout()
-        self._bu_status_lbl = QLabel("⚪ 检测中…")
+        self._bu_status_lbl = QLabel(tr("settings.bu_checking"))
         self._bu_status_lbl.setStyleSheet("font-size: 11px;")
         btn_row.addWidget(self._bu_status_lbl)
         btn_row.addStretch()
 
-        self._btn_install_bu = QPushButton("一键安装 browser-use")
+        self._btn_install_bu = QPushButton(tr("settings.bu_install_btn"))
         self._btn_install_bu.setObjectName("btn_flat")
         self._btn_install_bu.setFixedHeight(28)
         self._btn_install_bu.clicked.connect(self._install_browser_use)
         btn_row.addWidget(self._btn_install_bu)
 
-        self._btn_install_chromium = QPushButton("安装 Chromium")
+        self._btn_install_chromium = QPushButton(tr("settings.chromium_install_btn"))
         self._btn_install_chromium.setObjectName("btn_flat")
         self._btn_install_chromium.setFixedHeight(28)
         self._btn_install_chromium.clicked.connect(self._install_chromium)
@@ -1219,14 +1147,14 @@ class SettingsPage(QWidget):
             self._ai_base_url.setText(base_url)
 
         # 更新 API Key 提示
-        self._ai_key_hint.setText(f"Key 格式：{key_hint}" if key_hint else "")
+        self._ai_key_hint.setText(tr("settings.ai_key_fmt").format(hint=key_hint) if key_hint else "")
 
         # 更新模型快速选择列表
         models = self._AI_MODEL_LISTS.get(code, [])
         self._ai_model_preset.blockSignals(True)
         self._ai_model_preset.clear()
         if models:
-            self._ai_model_preset.addItem(f"—— 点击选择 {len(models)} 个推荐模型 ——")
+            self._ai_model_preset.addItem(tr("settings.ai_model_preset_select").format(n=len(models)))
             for m in models:
                 self._ai_model_preset.addItem(m)
             # 如果当前模型输入框为空或是另一个服务商的默认模型，自动填入默认模型
@@ -1235,7 +1163,7 @@ class SettingsPage(QWidget):
             if not cur_model or cur_model in all_default_models:
                 self._ai_model.setText(default_model)
         else:
-            self._ai_model_preset.addItem("—— 请手动填写模型名称 ——")
+            self._ai_model_preset.addItem(tr("settings.ai_model_preset_manual"))
         self._ai_model_preset.blockSignals(False)
 
     def _refresh_model_preset_list(self, code: str):
@@ -1244,11 +1172,11 @@ class SettingsPage(QWidget):
         self._ai_model_preset.blockSignals(True)
         self._ai_model_preset.clear()
         if models:
-            self._ai_model_preset.addItem(f"—— 点击选择 {len(models)} 个推荐模型 ——")
+            self._ai_model_preset.addItem(tr("settings.ai_model_preset_select").format(n=len(models)))
             for m in models:
                 self._ai_model_preset.addItem(m)
         else:
-            self._ai_model_preset.addItem("—— 请手动填写模型名称 ——")
+            self._ai_model_preset.addItem(tr("settings.ai_model_preset_manual"))
         self._ai_model_preset.blockSignals(False)
 
     def _test_ai_connection(self):
@@ -1258,7 +1186,7 @@ class SettingsPage(QWidget):
         model    = self._ai_model.text().strip() or "gpt-4o-mini"
 
         if not api_key:
-            QMessageBox.warning(self, "测试失败", "请先填写 API Key！")
+            QMessageBox.warning(self, tr("settings.ai_test_fail_title"), tr("settings.ai_test_fail_no_key"))
             return
 
         try:
@@ -1288,37 +1216,37 @@ class SettingsPage(QWidget):
             with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 body = _json.loads(resp.read().decode("utf-8"))
                 reply = body["choices"][0]["message"]["content"]
-                QMessageBox.information(self, "✅ 连接成功",
-                    f"模型 {model} 连接成功！\n回复预览：{reply[:80]}")
+                QMessageBox.information(self, tr("settings.ai_test_ok_title"),
+                    tr("settings.ai_test_ok_msg").format(model=model, reply=reply[:80]))
         except urllib.error.HTTPError as e:
             try:
                 err_body = _json.loads(e.read().decode("utf-8"))
                 err_msg = err_body.get("error", {}).get("message", str(e))
             except Exception:
                 err_msg = str(e)
-            QMessageBox.critical(self, "连接失败", f"HTTP {e.code}：{err_msg}")
+            QMessageBox.critical(self, tr("settings.ai_test_fail_title"), tr("settings.ai_test_http_err").format(code=e.code, msg=err_msg))
         except Exception as e:
-            QMessageBox.critical(self, "连接失败", f"连接失败：\n{e}")
+            QMessageBox.critical(self, tr("settings.ai_test_fail_title"), tr("settings.ai_test_conn_err").format(err=e))
 
     def _check_browser_use_status(self):
         """检测 browser-use 安装状态"""
         try:
             import importlib
             bu = importlib.import_module("browser_use")
-            version = getattr(bu, "__version__", "已安装")
+            version = getattr(bu, "__version__", "")
             if hasattr(self, "_bu_status_lbl"):
-                self._bu_status_lbl.setText(f"✅ browser-use {version} 已安装")
+                self._bu_status_lbl.setText(tr("settings.bu_installed").format(ver=version))
                 self._bu_status_lbl.setStyleSheet("font-size:11px; color:#4ade80;")
         except ImportError:
             if hasattr(self, "_bu_status_lbl"):
-                self._bu_status_lbl.setText("❌ browser-use 未安装")
+                self._bu_status_lbl.setText(tr("settings.bu_not_installed"))
                 self._bu_status_lbl.setStyleSheet("font-size:11px; color:#f87171;")
 
     def _install_browser_use(self):
         """一键安装 browser-use（browser_use.llm 内置适配层，无需 langchain）"""
         import sys, subprocess, threading
         self._btn_install_bu.setEnabled(False)
-        self._bu_status_lbl.setText("⏳ 正在安装 browser-use，请稍候…")
+        self._bu_status_lbl.setText(tr("settings.bu_installing"))
 
         def do_install():
             try:
@@ -1338,21 +1266,20 @@ class SettingsPage(QWidget):
     def _on_bu_install_done(self):
         self._btn_install_bu.setEnabled(True)
         self._check_browser_use_status()
-        QMessageBox.information(self, "安装成功",
-            "browser-use 已安装！\n\n下一步：点击「安装 Chromium」按钮安装浏览器驱动。")
+        QMessageBox.information(self, tr("settings.bu_install_ok_title"), tr("settings.bu_install_ok_msg"))
 
     def _on_bu_install_fail(self, err: str = ""):
         self._btn_install_bu.setEnabled(True)
         if not err:
-            err = getattr(self, "_bu_install_error", "未知错误")
-        QMessageBox.critical(self, "安装失败",
-            f"browser-use 安装失败，请手动执行：\n\npip install browser-use\n\n错误信息：\n{err}")
+            err = getattr(self, "_bu_install_error", tr("settings.bu_unknown_err"))
+        QMessageBox.critical(self, tr("settings.bu_install_fail_title"),
+            tr("settings.bu_install_fail_msg").format(err=err))
 
     def _install_chromium(self):
         """安装 Playwright Chromium"""
         import sys, subprocess, threading
         self._btn_install_chromium.setEnabled(False)
-        self._bu_status_lbl.setText("⏳ 正在安装 Chromium，这可能需要几分钟…")
+        self._bu_status_lbl.setText(tr("settings.chromium_installing"))
 
         def do_install():
             try:
@@ -1376,17 +1303,17 @@ class SettingsPage(QWidget):
 
     def _on_chromium_install_done(self):
         self._btn_install_chromium.setEnabled(True)
-        self._bu_status_lbl.setText("✅ browser-use + Chromium 均已就绪！")
+        self._bu_status_lbl.setText(tr("settings.chromium_ready"))
         self._bu_status_lbl.setStyleSheet("font-size:11px; color:#4ade80;")
-        QMessageBox.information(self, "安装完成",
-            "Chromium 浏览器驱动安装成功！\n\n现在可以使用「AI 浏览器自动化」功能块了。")
+        QMessageBox.information(self, tr("settings.chromium_install_ok_title"),
+            tr("settings.chromium_install_ok_msg"))
 
     def _on_chromium_install_fail(self, err: str = ""):
         self._btn_install_chromium.setEnabled(True)
         if not err:
-            err = getattr(self, "_chromium_install_error", "未知错误")
-        QMessageBox.critical(self, "安装失败",
-            f"Chromium 安装失败，请手动执行：\n\nplaywright install chromium\n\n错误信息：\n{err}")
+            err = getattr(self, "_chromium_install_error", tr("settings.bu_unknown_err"))
+        QMessageBox.critical(self, tr("settings.bu_install_fail_title"),
+            tr("settings.chromium_install_fail_msg").format(err=err))
 
     # ─── 高级 ───
     def _build_advanced_tab(self) -> QWidget:
@@ -1406,7 +1333,7 @@ class SettingsPage(QWidget):
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
             "XinyuCraft", "AutoFlow", "Log", "autoflow.log"
         )
-        self._log_path.setPlaceholderText(f"留空=自动使用  {_default_log}")
+        self._log_path.setPlaceholderText(tr("settings.log_path_ph") + f"  ({_default_log})")
         row = QWidget()
         hl  = QHBoxLayout(row); hl.setContentsMargins(0,0,0,0); hl.setSpacing(4)
         hl.addWidget(self._log_path)
@@ -1596,7 +1523,7 @@ class SettingsPage(QWidget):
 
             layout.addWidget(oss_box)
 
-        copyright_lbl = QLabel("© 2026 广州新遇绘创美术工艺有限公司  保留所有权利")
+        copyright_lbl = QLabel(tr("settings.copyright"))
         copyright_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         copyright_lbl.setStyleSheet("font-size: 10px; color: gray;")
         layout.addWidget(copyright_lbl)
@@ -1608,7 +1535,7 @@ class SettingsPage(QWidget):
     def _do_check_update(self, current_version: str) -> None:
         """触发后台版本检测，结果通过信号安全回到主线程"""
         from ..updater import check_update
-        self._update_status_lbl.setText("⏳ 正在检查更新...")
+        self._update_status_lbl.setText(tr("settings.update_checking"))
         self._update_status_lbl.setStyleSheet("font-size: 12px; color: #CDD6F4;")
         self._update_open_btn.setVisible(False)
 
@@ -1635,10 +1562,10 @@ class SettingsPage(QWidget):
 
         if result.get("has_update"):
             tag = result.get("latest_tag", "")
-            self._update_status_lbl.setText(f"🎉 发现新版本 {tag}，点击右侧查看详情")
+            self._update_status_lbl.setText(tr("settings.update_found").format(tag=tag))
             self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
             self._update_open_btn.setVisible(True)
-            self._update_open_btn.setText("📥 查看详情")
+            self._update_open_btn.setText(tr("settings.update_open_btn"))
             # 断开旧连接再重新连接，防止多次触发
             try:
                 self._update_open_btn.clicked.disconnect()
@@ -1653,7 +1580,7 @@ class SettingsPage(QWidget):
             self._update_open_btn.clicked.connect(_open_update_dialog)
         else:
             tag = result.get("latest_tag", "")
-            self._update_status_lbl.setText(f"✅ 已是最新版本（{tag}）")
+            self._update_status_lbl.setText(tr("settings.update_latest").format(tag=tag))
             self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
             self._update_open_btn.setVisible(False)
 
@@ -1720,11 +1647,7 @@ class SettingsPage(QWidget):
         if idx_lang >= 0:
             self._lang_combo.setCurrentIndex(idx_lang)
 
-        # 背景/字体/配色/整合包
-        self._bg_path_edit.setText(getattr(c, 'theme_bg_image', ''))
-        self._bg_opacity_spin.setValue(getattr(c, 'theme_bg_opacity', 0.15))
-        bg_mode_idx = self._bg_mode_combo.findData(getattr(c, 'theme_bg_mode', 'fill'))
-        self._bg_mode_combo.setCurrentIndex(bg_mode_idx if bg_mode_idx >= 0 else 0)
+        # 字体/配色/整合包
         self._font_family_edit.setText(getattr(c, 'theme_font_family', ''))
         self._font_size_spin.setValue(getattr(c, 'theme_font_size', 0))
         # 配色覆盖：dict → 文本
@@ -1808,10 +1731,7 @@ class SettingsPage(QWidget):
             c.theme_pack_path = ""
         c.language = self._lang_combo.currentData() or "zh_CN"
 
-        # 背景/字体/配色/整合包
-        c.theme_bg_image   = self._bg_path_edit.text().strip()
-        c.theme_bg_opacity = self._bg_opacity_spin.value()
-        c.theme_bg_mode    = self._bg_mode_combo.currentData() or "fill"
+        # 字体/配色/整合包
         c.theme_font_family = self._font_family_edit.text().strip()
         c.theme_font_size   = self._font_size_spin.value()
         # 配色覆盖：文本 → dict
@@ -1888,7 +1808,7 @@ class SettingsPage(QWidget):
                     pass
             winreg.CloseKey(key)
         except Exception as e:
-            QMessageBox.warning(self, "注册表错误", f"开机自启设置失败：{e}")
+            QMessageBox.warning(self, tr("settings.registry_err_title"), tr("settings.registry_err_msg").format(err=e))
 
     def refresh_tasks(self, tasks=None):
         """
@@ -1901,7 +1821,7 @@ class SettingsPage(QWidget):
         cur_task_id = self._auto_task_combo.currentData() or ""
         self._auto_task_combo.blockSignals(True)
         self._auto_task_combo.clear()
-        self._auto_task_combo.addItem("（不运行任何任务）", "")
+        self._auto_task_combo.addItem(tr("settings.no_task"), "")
         for t in self.tasks:
             self._auto_task_combo.addItem(t.name, t.id)
         # 尝试恢复之前选中的项
@@ -2059,9 +1979,9 @@ class SettingsPage(QWidget):
                 s.ehlo(); s.starttls(); s.ehlo()
             s.login(addr, self._smtp_pass.text())
             s.quit()
-            QMessageBox.information(self, "测试成功", "SMTP 连接和登录成功！")
+            QMessageBox.information(self, tr("settings.smtp_test_ok_title"), tr("settings.smtp_test_ok_msg"))
         except Exception as e:
-            QMessageBox.critical(self, "测试失败", f"SMTP 连接失败：\n{e}")
+            QMessageBox.critical(self, tr("settings.smtp_test_fail_title"), tr("settings.smtp_test_fail_msg").format(err=e))
 
     def _test_imap(self):
         import imaplib
@@ -2072,6 +1992,6 @@ class SettingsPage(QWidget):
                 m = imaplib.IMAP4(self._imap_server.text(), self._imap_port.value())
             m.login(self._imap_user.text(), self._imap_pass.text())
             m.logout()
-            QMessageBox.information(self, "测试成功", "IMAP 连接和登录成功！")
+            QMessageBox.information(self, tr("settings.imap_test_ok_title"), tr("settings.imap_test_ok_msg"))
         except Exception as e:
-            QMessageBox.critical(self, "测试失败", f"IMAP 连接失败：\n{e}")
+            QMessageBox.critical(self, tr("settings.imap_test_fail_title"), tr("settings.imap_test_fail_msg").format(err=e))
