@@ -432,24 +432,50 @@ def download_theme_pack(
       ...
     }
     返回安装后的 ThemePackInfo。
+    自动尝试 GitHub raw → jsDelivr CDN 三级备用源。
     """
     import urllib.request, tempfile
-    url = pack_info.get("download_url") or pack_info.get("url", "")
-    if not url:
+    primary_url = pack_info.get("download_url") or pack_info.get("url", "")
+    if not primary_url:
         raise ValueError("主题包没有 download_url")
+
+    # 构建备用 URL 列表（GitHub raw → jsDelivr CDN）
+    fallback_urls = [primary_url]
+    if "raw.githubusercontent.com" in primary_url:
+        try:
+            parts = primary_url.split("raw.githubusercontent.com/", 1)[1].split("/", 3)
+            owner, repo, branch, path = parts[0], parts[1], parts[2], parts[3]
+            cdn_url = f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}"
+            fallback_urls.append(cdn_url)
+        except Exception:
+            pass
 
     # 下载到临时文件
     with tempfile.NamedTemporaryFile(suffix=".aftheme", delete=False) as tf:
         tmp_path = tf.name
 
     try:
-        def _reporthook(count, block_size, total_size):
-            if progress_cb and total_size > 0:
-                done = min(count * block_size, total_size)
-                progress_cb(done, total_size)
-
-        urllib.request.urlretrieve(url, tmp_path, reporthook=_reporthook)
-        return import_theme_pack(tmp_path)
+        last_error = None
+        for url in fallback_urls:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "AutoFlow/4"})
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    total = int(resp.headers.get("Content-Length", 0))
+                    downloaded = 0
+                    with open(tmp_path, "wb") as f:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if progress_cb and total > 0:
+                                progress_cb(downloaded, total)
+                return import_theme_pack(tmp_path)
+            except Exception as e:
+                last_error = e
+                continue
+        raise RuntimeError(f"主题包下载失败（已尝试所有备用源）：{last_error}")
     finally:
         try:
             os.unlink(tmp_path)
