@@ -768,28 +768,46 @@ class MainWindow(QMainWindow):
 
     def _setup_shortcuts(self):
         """注册全局快捷键（窗口聚焦时生效）"""
+        # 清除之前的快捷键
+        if hasattr(self, "_shortcuts"):
+            for sc in self._shortcuts:
+                try:
+                    sc.setParent(None)
+                    sc.deleteLater()
+                except Exception:
+                    pass
+        self._shortcuts = []
+        
         def _bind(seq: str, slot):
-            sc = QShortcut(QKeySequence(seq), self)
-            sc.setContext(Qt.ShortcutContext.WindowShortcut)
-            sc.activated.connect(slot)
+            if seq and seq.strip():
+                try:
+                    sc = QShortcut(QKeySequence(seq), self)
+                    sc.setContext(Qt.ShortcutContext.WindowShortcut)
+                    sc.activated.connect(slot)
+                    self._shortcuts.append(sc)
+                except Exception:
+                    pass  # 忽略无效快捷键格式
 
+        config = self._project.config
+        
         # ── 撤回 / 重做 ──
-        _bind("Ctrl+Z",       self._undo)
-        _bind("Ctrl+Y",       self._redo)
+        _bind(getattr(config, "undo_hotkey", "Ctrl+Z"),       self._undo)
+        _bind(getattr(config, "redo_hotkey", "Ctrl+Y"),       self._redo)
+        # 仍然保留 Ctrl+Shift+Z 作为重做的兼容快捷键
         _bind("Ctrl+Shift+Z", self._redo)   # 兼容
 
         # ── 项目操作 ──
-        _bind("Ctrl+N", self._new_project_prompt)
-        _bind("Ctrl+O", self._open_project)
-        _bind("Ctrl+S", self._save_project)
-        _bind("Ctrl+Shift+S", self._save_project_as)
-        _bind("Ctrl+W", self._close_project)
+        _bind(getattr(config, "new_project_hotkey", "Ctrl+N"), self._new_project_prompt)
+        _bind(getattr(config, "open_project_hotkey", "Ctrl+O"), self._open_project)
+        _bind(getattr(config, "save_project_hotkey", "Ctrl+S"), self._save_project)
+        _bind("Ctrl+Shift+S", self._save_project_as)  # 另存为保持不变
+        _bind("Ctrl+W", self._close_project)  # 关闭项目保持不变
 
         # ── 新建任务 ──
-        _bind("Ctrl+T", self._add_task)
+        _bind(getattr(config, "new_task_hotkey", "Ctrl+T"), self._add_task)
 
         # ── 操作历史 ──
-        _bind("Ctrl+H", self._show_history)
+        _bind(getattr(config, "history_hotkey", "Ctrl+H"), self._show_history)
 
         # ── 刷新界面（F5）──
         _bind("F5", self._force_ui_refresh)
@@ -1756,6 +1774,8 @@ class MainWindow(QMainWindow):
         MacroRecorderWidget.stop_hotkey   = getattr(config, "macro_stop_hotkey", "F10")
         # 同步强制终止热键（重启后台线程）
         self._restart_force_stop_hotkey()
+        # 重新设置快捷键（如果快捷键配置有变更）
+        self._setup_shortcuts()
         # 同步 reopen_last + 语言（语言需持久化到 app_config 以便下次启动时提前应用）
         app_cfg = _load_app_config()
         app_cfg["reopen_last"] = config.reopen_last_project

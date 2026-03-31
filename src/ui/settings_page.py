@@ -822,39 +822,86 @@ class SettingsPage(QWidget):
         layout.setSpacing(16)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # ── 可自定义快捷键 ──
-        self._grp_hotkeys_custom = QGroupBox(tr("settings.grp.hotkeys_custom"))
-        gf_custom  = QFormLayout(self._grp_hotkeys_custom)
-        gf_custom.setSpacing(12)
+        # ── 系统快捷键自定义 ──
+        self._grp_sys_hotkeys = QGroupBox(tr("settings.grp.sys_hotkeys"))
+        gf_sys = QFormLayout(self._grp_sys_hotkeys)
+        gf_sys.setSpacing(12)
+
+        # 撤销
+        self._undo_hotkey = HotkeyEdit()
+        self._undo_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.undo_hotkey"), self._undo_hotkey)
+
+        # 重做
+        self._redo_hotkey = HotkeyEdit()
+        self._redo_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.redo_hotkey"), self._redo_hotkey)
+
+        # 新建任务
+        self._new_task_hotkey = HotkeyEdit()
+        self._new_task_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.new_task_hotkey"), self._new_task_hotkey)
+
+        # 新建项目
+        self._new_project_hotkey = HotkeyEdit()
+        self._new_project_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.new_project_hotkey"), self._new_project_hotkey)
+
+        # 打开项目
+        self._open_project_hotkey = HotkeyEdit()
+        self._open_project_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.open_project_hotkey"), self._open_project_hotkey)
+
+        # 保存项目
+        self._save_project_hotkey = HotkeyEdit()
+        self._save_project_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.save_project_hotkey"), self._save_project_hotkey)
+
+        # 操作历史
+        self._history_hotkey = HotkeyEdit()
+        self._history_hotkey.setFixedWidth(200)
+        gf_sys.addRow(tr("settings.history_hotkey"), self._history_hotkey)
+
+        sys_hint = QLabel(tr("settings.sys_hotkey_hint"))
+        sys_hint.setObjectName("hint")
+        sys_hint.setWordWrap(True)
+        gf_sys.addRow("", sys_hint)
+
+        layout.addWidget(self._grp_sys_hotkeys)
+
+        # ── 功能快捷键自定义 ──
+        self._grp_func_hotkeys = QGroupBox(tr("settings.grp.func_hotkeys"))
+        gf_func = QFormLayout(self._grp_func_hotkeys)
+        gf_func.setSpacing(12)
 
         # 坐标选点 —— 点击输入框即录制
         self._coord_hotkey = HotkeyEdit()
         self._coord_hotkey.setFixedWidth(200)
-        gf_custom.addRow(tr("settings.coord_hotkey"), self._coord_hotkey)
+        gf_func.addRow(tr("settings.coord_hotkey"), self._coord_hotkey)
         self._coord_hotkey_hint = QLabel(tr("settings.coord_hotkey_hint"))
         self._coord_hotkey_hint.setObjectName("hint")
         self._coord_hotkey_hint.setWordWrap(True)
-        gf_custom.addRow("", self._coord_hotkey_hint)
+        gf_func.addRow("", self._coord_hotkey_hint)
 
         # 键鼠宏停止录制
         self._macro_stop_hotkey = HotkeyEdit()
         self._macro_stop_hotkey.setFixedWidth(200)
-        gf_custom.addRow(tr("settings.macro_stop_hotkey_label"), self._macro_stop_hotkey)
+        gf_func.addRow(tr("settings.macro_stop_hotkey_label"), self._macro_stop_hotkey)
         _macro_stop_hint = QLabel(tr("settings.macro_stop_hotkey_hint"))
         _macro_stop_hint.setObjectName("hint")
         _macro_stop_hint.setWordWrap(True)
-        gf_custom.addRow("", _macro_stop_hint)
+        gf_func.addRow("", _macro_stop_hint)
 
         # 强制终止
         self._force_stop_hotkey = HotkeyEdit()
         self._force_stop_hotkey.setFixedWidth(200)
-        gf_custom.addRow(tr("settings.stop_hotkey"), self._force_stop_hotkey)
+        gf_func.addRow(tr("settings.stop_hotkey"), self._force_stop_hotkey)
         self._stop_hotkey_hint = QLabel(tr("settings.stop_hotkey_hint"))
         self._stop_hotkey_hint.setObjectName("hint")
         self._stop_hotkey_hint.setWordWrap(True)
-        gf_custom.addRow("", self._stop_hotkey_hint)
+        gf_func.addRow("", self._stop_hotkey_hint)
 
-        layout.addWidget(self._grp_hotkeys_custom)
+        layout.addWidget(self._grp_func_hotkeys)
 
         # ── 内置固定快捷键参考表 ──
         from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
@@ -1601,6 +1648,15 @@ class SettingsPage(QWidget):
         self._coord_hotkey.setText(getattr(c, "coord_pick_hotkey", "F9"))
         self._macro_stop_hotkey.setText(getattr(c, "macro_stop_hotkey", "F10"))
         self._force_stop_hotkey.setText(getattr(c, "force_stop_hotkey", "ctrl+alt+s"))
+        
+        # 系统快捷键
+        self._undo_hotkey.setText(getattr(c, "undo_hotkey", "Ctrl+Z"))
+        self._redo_hotkey.setText(getattr(c, "redo_hotkey", "Ctrl+Y"))
+        self._new_task_hotkey.setText(getattr(c, "new_task_hotkey", "Ctrl+T"))
+        self._new_project_hotkey.setText(getattr(c, "new_project_hotkey", "Ctrl+N"))
+        self._open_project_hotkey.setText(getattr(c, "open_project_hotkey", "Ctrl+O"))
+        self._save_project_hotkey.setText(getattr(c, "save_project_hotkey", "Ctrl+S"))
+        self._history_hotkey.setText(getattr(c, "history_hotkey", "Ctrl+H"))
 
         self._reopen_cb.setChecked(c.reopen_last_project)
         self._auto_save_cb.setChecked(c.auto_save_enabled)
@@ -1691,6 +1747,15 @@ class SettingsPage(QWidget):
         c.coord_pick_hotkey  = self._coord_hotkey.text().strip() or "F9"
         c.macro_stop_hotkey  = self._macro_stop_hotkey.text().strip() or "F10"
         c.force_stop_hotkey  = self._force_stop_hotkey.text().strip() or "ctrl+alt+s"
+        
+        # 系统快捷键
+        c.undo_hotkey        = self._undo_hotkey.text().strip() or "Ctrl+Z"
+        c.redo_hotkey        = self._redo_hotkey.text().strip() or "Ctrl+Y"
+        c.new_task_hotkey    = self._new_task_hotkey.text().strip() or "Ctrl+T"
+        c.new_project_hotkey = self._new_project_hotkey.text().strip() or "Ctrl+N"
+        c.open_project_hotkey = self._open_project_hotkey.text().strip() or "Ctrl+O"
+        c.save_project_hotkey = self._save_project_hotkey.text().strip() or "Ctrl+S"
+        c.history_hotkey     = self._history_hotkey.text().strip() or "Ctrl+H"
 
         c.reopen_last_project = self._reopen_cb.isChecked()
         c.auto_save_enabled   = self._auto_save_cb.isChecked()
@@ -1756,12 +1821,76 @@ class SettingsPage(QWidget):
         c.ai_system_prompt = self._ai_system_prompt_edit.toPlainText().strip()
 
         # 立即应用语言设置（set_language 内部会通知所有 UI 观察者刷新文字）
-        from ..i18n import set_language, tr as _tr
+        from ..i18n import set_language, tr as _tr, get_language
+        old_lang = get_language()
         set_language(c.language)
 
+        # 如果语言发生了变化，通知用户需要重启
+        if old_lang != c.language:
+            import os, pathlib, subprocess, sys, time
+            
+            # 创建重启脚本（Bat 脚本）
+            exe_path = None
+            if hasattr(sys, 'frozen') and getattr(sys, '_MEIPASS', None):
+                # frozen (打包后的环境)
+                exe_path = sys.executable
+            else:
+                # 开发环境
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                exe_path = os.path.join(project_root, 'main.py')
+            
+            # 创建重启脚本
+            script_content = f'''@echo off
+echo 正在停止 AutoFlow 进程...
+timeout /t 2 /nobreak >nul
+taskkill /f /im "AutoFlow.exe" 2>nul
+taskkill /f /im "python.exe" 2>nul
+
+echo 启动 AutoFlow...
+start "" "{exe_path}"
+echo 重启完成，窗口即将关闭...
+timeout /t 2 /nobreak >nul
+'''
+            
+            # 获取重启脚本路径
+            if hasattr(sys, 'frozen'):
+                script_dir = os.path.dirname(sys.executable)
+            else:
+                script_dir = os.getcwd()
+            
+            restart_script_path = os.path.join(script_dir, 'restart_autoflow.bat')
+            
+            try:
+                with open(restart_script_path, 'w', encoding='gbk') as f:
+                    f.write(script_content)
+                script_created = True
+                script_msg = f"\n\n重启脚本已创建：\n{restart_script_path}"
+            except Exception as e:
+                script_created = False
+                script_msg = f"\n\n创建重启脚本失败：{e}"
+            
+            # 显示重启提示
+            restart_msg = _tr("settings.restart_msg")
+            if script_created:
+                restart_msg += _tr("settings.restart_msg_script")
+            
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.warning(
+                self,
+                _tr("settings.restart_title"),
+                restart_msg + script_msg,
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Ok
+            )
+            
+            if reply == QMessageBox.StandardButton.Ok:
+                # 退出应用
+                QTimer.singleShot(2000, lambda: self.parent().parent().close() if self.parent() and self.parent().parent() else sys.exit(0))
+        
         self._apply_autostart(c.auto_start_enabled)
         self.config_changed.emit(c)
-        QMessageBox.information(self, _tr("settings.saved"), _tr("settings.saved_msg"))
+        if old_lang == c.language:
+            QMessageBox.information(self, _tr("settings.saved"), _tr("settings.saved_msg"))
 
     def _open_language_market(self):
         from .language_market import LanguageMarketPage
