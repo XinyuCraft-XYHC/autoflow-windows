@@ -472,13 +472,7 @@ class SettingsPage(QWidget):
         gf.setSpacing(12)
 
         self._theme_combo = QComboBox()
-        self._theme_combo.addItem(tr("settings.theme_follow"), "system")
-        dark_items  = [(k, v) for k, v in PALETTES.items() if v["mode"] == "dark"]
-        light_items = [(k, v) for k, v in PALETTES.items() if v["mode"] == "light"]
-        for k, v in dark_items:
-            self._theme_combo.addItem(f"  {v['name']}", k)
-        for k, v in light_items:
-            self._theme_combo.addItem(f"  {v['name']}", k)
+        self._populate_theme_combo()
 
         gf.addRow(tr("settings.theme_label"), self._theme_combo)
         layout.addWidget(self._grp_theme)
@@ -663,8 +657,70 @@ class SettingsPage(QWidget):
         page.setWidget(container)
         return page
 
+    def _populate_theme_combo(self):
+        """填充主题预设下拉框（内置主题 + 已安装整合包）"""
+        from ..i18n import tr as _tr
+        prev_data = self._theme_combo.currentData()
+        self._theme_combo.blockSignals(True)
+        self._theme_combo.clear()
+
+        # 跟随系统
+        self._theme_combo.addItem(_tr("settings.theme_follow"), "system")
+
+        # 内置调色板
+        dark_items  = [(k, v) for k, v in PALETTES.items() if v["mode"] == "dark"]
+        light_items = [(k, v) for k, v in PALETTES.items() if v["mode"] == "light"]
+        for k, v in dark_items:
+            self._theme_combo.addItem(f"  {v['name']}", k)
+        for k, v in light_items:
+            self._theme_combo.addItem(f"  {v['name']}", k)
+
+        # 已安装整合包（pack:pack_id 前缀）
+        try:
+            from .theme_manager import list_installed_packs
+            packs = list_installed_packs()
+            if packs:
+                for pack in packs:
+                    icon = "🌙" if pack.base_theme in ("dark", "dark_nord", "dark_dracula", "dark_onedark") else "☀️"
+                    self._theme_combo.addItem(f"  {icon} {pack.name}", f"pack:{pack.id}")
+        except Exception:
+            pass
+
+        self._theme_combo.blockSignals(False)
+        # 恢复之前的选中
+        if prev_data:
+            idx = self._theme_combo.findData(prev_data)
+            if idx >= 0:
+                self._theme_combo.setCurrentIndex(idx)
+
     def _update_theme_preview(self):
         key = self._theme_combo.currentData() or "dark"
+
+        # 整合包主题预览
+        if isinstance(key, str) and key.startswith("pack:"):
+            pack_id = key[5:]
+            try:
+                import copy
+                from .theme_manager import get_installed_pack
+                from .themes import PALETTES as P
+                pack = get_installed_pack(pack_id)
+                if pack:
+                    base = P.get(pack.base_theme, P["dark"])
+                    p = copy.deepcopy(base)
+                    p.update(pack.palette_override)
+                    self._theme_preview.setStyleSheet(
+                        f"background: {p['bg0']}; border: 2px solid {p['accent']}; "
+                        f"border-radius: 8px; color: {p['fg0']};"
+                    )
+                    self._theme_preview.setText(
+                        f"<b style='color:{p['accent']}'>{pack.name}</b>  "
+                        f"<span style='color:{p['fg2']}'>整合包预览</span>"
+                    )
+                    return
+            except Exception:
+                pass
+            return
+
         if key == "system":
             key = "dark"
         from .themes import PALETTES as P
@@ -808,7 +864,14 @@ class SettingsPage(QWidget):
         from .theme_market import ThemeMarketPage
         dlg = ThemeMarketPage(self)
         dlg.exec()
-        # 市场关闭后刷新整合包状态
+        # 市场关闭后刷新下拉框（新安装的整合包会自动出现在主题预设里）
+        prev = self._theme_combo.currentData()
+        self._populate_theme_combo()
+        # 恢复之前选中（若无变化），否则停在第一项
+        idx = self._theme_combo.findData(prev)
+        if idx >= 0:
+            self._theme_combo.setCurrentIndex(idx)
+        self._update_theme_preview()
         self._refresh_pack_label()
 
     # ─── 按键 ───
@@ -1632,10 +1695,23 @@ class SettingsPage(QWidget):
         self._log_path.setText(c.log_path)
         self._max_log.setValue(c.max_log_lines)
 
-        # 主题
-        idx2 = self._theme_combo.findData(c.theme)
-        if idx2 >= 0:
-            self._theme_combo.setCurrentIndex(idx2)
+        # 主题（先刷新下拉以包含最新安装的整合包）
+        self._populate_theme_combo()
+        # 如果有整合包，优先选整合包主题项
+        pack_path = getattr(c, "theme_pack_path", "")
+        if pack_path:
+            pack_key = f"pack:{pack_path}"
+            idx_pack = self._theme_combo.findData(pack_key)
+            if idx_pack >= 0:
+                self._theme_combo.setCurrentIndex(idx_pack)
+            else:
+                idx2 = self._theme_combo.findData(c.theme)
+                if idx2 >= 0:
+                    self._theme_combo.setCurrentIndex(idx2)
+        else:
+            idx2 = self._theme_combo.findData(c.theme)
+            if idx2 >= 0:
+                self._theme_combo.setCurrentIndex(idx2)
         self._update_theme_preview()
 
         # 语言
@@ -1714,6 +1790,22 @@ class SettingsPage(QWidget):
         c.max_log_lines = self._max_log.value()
 
         c.theme = self._theme_combo.currentData() or "dark"
+        # 如果选的是整合包主题（pack:id），自动同步 theme_pack_path
+        theme_val = c.theme
+        if isinstance(theme_val, str) and theme_val.startswith("pack:"):
+            pack_id = theme_val[5:]
+            c.theme_pack_path = pack_id
+            # 整合包的 base_theme 作为真实 theme key
+            try:
+                from .theme_manager import get_installed_pack
+                pack = get_installed_pack(pack_id)
+                if pack and pack.base_theme:
+                    c.theme = pack.base_theme
+            except Exception:
+                c.theme = "dark"
+        else:
+            # 选了非整合包主题，清除整合包
+            c.theme_pack_path = ""
         c.language = self._lang_combo.currentData() or "zh_CN"
 
         # 背景/字体/配色/整合包

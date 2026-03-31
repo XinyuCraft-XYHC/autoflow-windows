@@ -353,7 +353,7 @@ class ThemeMarketPage(QDialog):
         if pack_id in self._cards:
             self._cards[pack_id].set_installed(True)
         QMessageBox.information(self, "下载成功",
-                                f"主题包已安装。\n前往「设置 → 外观 → 整合包」中导入并应用。")
+                                f"主题包已安装！\n关闭此窗口后，可在「设置 → 外观 → 主题预设」下拉框中直接选择。")
 
     def _on_dl_error(self, pack_id: str, error: str):
         self._progress.setVisible(False)
