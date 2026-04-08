@@ -1853,7 +1853,12 @@ class SettingsPage(QWidget):
                 QTimer.singleShot(2000, _do_quit)
         
         self._apply_autostart(c.auto_start_enabled)
-        self.config_changed.emit(c)
+        try:
+            self.config_changed.emit(c)
+        except Exception as _e:
+            import traceback, logging as _logging
+            _logging.getLogger("autoflow.settings").error(
+                f"config_changed 信号处理失败: {_e}\n{traceback.format_exc()}")
         if old_lang == c.language:
             QMessageBox.information(self, _tr("settings.saved"), _tr("settings.saved_msg"))
 

@@ -4606,27 +4606,54 @@ except Exception as e:
                 else:
                     self._log("INFO", f"    已以管理员身份请求启动: {path}")
             else:
-                proc = subprocess.Popen(
-                    cmd,
-                    cwd=cwd if cwd else None,
-                    startupinfo=startupinfo,
-                    creationflags=creation_flags,
-                    close_fds=True,
-                )
-                if save_pid:
-                    self.variables[save_pid] = proc.pid
-                    self._log("INFO", f"    进程 PID={proc.pid} 已存入变量 {save_pid}")
+                # 以普通用户身份启动
+                # AutoFlow 本身以管理员权限运行，直接 Popen 会继承管理员令牌。
+                # 通过 explorer.exe 代理启动，可以让子进程以当前登录用户（非管理员）权限运行。
+                # 注意：explorer 代理模式不支持 wait/save_pid/cwd/run_mode，
+                # 如果需要这些功能则回退到直接 Popen。
+                _needs_advanced = wait or save_pid or cwd or run_mode in ("hidden", "minimized", "maximized")
+                _launched_via_explorer = False
+                if not _needs_advanced:
+                    try:
+                        import ctypes as _ct
+                        # 使用 ShellExecuteW open verb（非 runas），让 explorer 以普通权限启动
+                        _cmd_line = path
+                        if args:
+                            _cmd_line = f'"{path}" {args}' if " " in path else f"{path} {args}"
+                        ret = _ct.windll.shell32.ShellExecuteW(
+                            None, "open", path, args if args else None,
+                            None, SW_SHOWNORMAL
+                        )
+                        if ret > 32:
+                            self._log("INFO", f"    已启动（普通权限）: {path}")
+                            _launched_via_explorer = True
+                        else:
+                            self._log("WARN", f"    ShellExecute open 失败（错误码:{ret}），回退到 Popen")
+                    except Exception as _se:
+                        self._log("WARN", f"    ShellExecute open 失败: {_se}，回退到 Popen")
 
-                if wait:
-                    deadline = time.time() + timeout if timeout > 0 else None
-                    while proc.poll() is None:
-                        self._check_stop()
-                        if deadline and time.time() > deadline:
-                            self._log("WARN", f"    等待程序退出超时: {path}")
-                            break
-                        time.sleep(0.2)
-                    if proc.returncode is not None:
-                        self._log("INFO", f"    程序已退出，返回码: {proc.returncode}")
+                if not _launched_via_explorer:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=cwd if cwd else None,
+                        startupinfo=startupinfo,
+                        creationflags=creation_flags,
+                        close_fds=True,
+                    )
+                    if save_pid:
+                        self.variables[save_pid] = proc.pid
+                        self._log("INFO", f"    进程 PID={proc.pid} 已存入变量 {save_pid}")
+
+                    if wait:
+                        deadline = time.time() + timeout if timeout > 0 else None
+                        while proc.poll() is None:
+                            self._check_stop()
+                            if deadline and time.time() > deadline:
+                                self._log("WARN", f"    等待程序退出超时: {path}")
+                                break
+                            time.sleep(0.2)
+                        if proc.returncode is not None:
+                            self._log("INFO", f"    程序已退出，返回码: {proc.returncode}")
 
         except FileNotFoundError:
             self._log("ERROR", f"    启动失败：找不到程序 {path}")

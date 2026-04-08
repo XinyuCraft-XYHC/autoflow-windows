@@ -555,11 +555,18 @@
 #     遍历所有顶层窗口逐一用 child_window(**ctrl_kw).wrapper_object() 尝试找控件；
 #     优先检查与 hwnd 对应的窗口，对弹出子对话框（类名不稳定）也能正确定位；
 
-VERSION       = "4.16.0"
-VERSION_TUPLE = (4, 16, 0)
+VERSION       = "4.17.0"
+VERSION_TUPLE = (4, 17, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
+
+# v4.17.0  2026-04-05
+#   【BUG修复】
+#   fix: 设置页保存时，config_changed 信号触发链中的异常被正确捕获，不再导致闪退
+#   fix: main_window._on_config_changed 加 try/except 防护，异常写入日志而非崩溃
+#   fix: 打开应用程序功能块 as_admin=False 时改用 ShellExecute "open" 而非 Popen，
+#        避免继承 AutoFlow 管理员令牌；需要 wait/cwd/run_mode/save_pid 时回退 Popen
 
 # v4.16.0  2026-03-31
 #   【主题系统升级 + 插件系统扩展】

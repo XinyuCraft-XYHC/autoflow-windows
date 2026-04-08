@@ -1765,24 +1765,28 @@ class MainWindow(QMainWindow):
                 self._stack.setCurrentIndex(0)
 
     def _on_config_changed(self, config: AppConfig):
-        self._project.config = config
-        self._apply_theme(config.theme)
-        self._reset_auto_save_timer()
-        self._save_project(silent=True)
-        # 同步坐标选点快捷键到全局类属性
-        CoordPickerEdit.pick_hotkey       = getattr(config, "coord_pick_hotkey", "F9")
-        MacroRecorderWidget.stop_hotkey   = getattr(config, "macro_stop_hotkey", "F10")
-        # 同步强制终止热键（重启后台线程）
-        self._restart_force_stop_hotkey()
-        # 重新设置快捷键（如果快捷键配置有变更）
-        self._setup_shortcuts()
-        # 同步 reopen_last + 语言（语言需持久化到 app_config 以便下次启动时提前应用）
-        app_cfg = _load_app_config()
-        app_cfg["reopen_last"] = config.reopen_last_project
-        app_cfg["language"] = getattr(config, "language", "zh_CN")
-        if self._project_path:
-            app_cfg["last_project"] = self._project_path
-        _save_app_config(app_cfg)
+        try:
+            self._project.config = config
+            self._apply_theme(config.theme)
+            self._reset_auto_save_timer()
+            self._save_project(silent=True)
+            # 同步坐标选点快捷键到全局类属性
+            CoordPickerEdit.pick_hotkey       = getattr(config, "coord_pick_hotkey", "F9")
+            MacroRecorderWidget.stop_hotkey   = getattr(config, "macro_stop_hotkey", "F10")
+            # 同步强制终止热键（重启后台线程）
+            self._restart_force_stop_hotkey()
+            # 重新设置快捷键（如果快捷键配置有变更）
+            self._setup_shortcuts()
+            # 同步 reopen_last + 语言（语言需持久化到 app_config 以便下次启动时提前应用）
+            app_cfg = _load_app_config()
+            app_cfg["reopen_last"] = config.reopen_last_project
+            app_cfg["language"] = getattr(config, "language", "zh_CN")
+            if self._project_path:
+                app_cfg["last_project"] = self._project_path
+            _save_app_config(app_cfg)
+        except Exception as _e:
+            import traceback
+            logger.error(f"config_changed 处理失败: {_e}\n{traceback.format_exc()}")
 
     # ─────────────────── 任务运行 ───────────────────
 

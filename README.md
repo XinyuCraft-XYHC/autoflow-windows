@@ -2,7 +2,7 @@
 
 > **积木式编排 · 触发器驱动 · AI 加持 · 零编程基础**
 
-[![Version](https://img.shields.io/badge/version-v4.16.0-blue)](https://github.com/XinyuCraft-XYHC/autoflow-windows/releases)
+[![Version](https://img.shields.io/badge/version-v4.17.0-blue)](https://github.com/XinyuCraft-XYHC/autoflow-windows/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-lightgrey)](https://github.com/XinyuCraft-XYHC/autoflow-windows)
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow)](https://github.com/)
 [![License](https://img.shields.io/badge/license-BSL%201.1-green)](LICENSE)
@@ -41,7 +41,7 @@ python main.py
 
 # 打包为独立 exe
 python build.py
-# 输出: dist/AutoFlow_v4.16.0_Setup.exe
+# 输出: dist/AutoFlow_v4.17.0_Setup.exe
 ```
 
 > **注意**：屏幕识别功能需额外安装 `pip install pyautogui opencv-python`；
@@ -275,6 +275,19 @@ browser-use      # AI 浏览器自动化（可选）
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) — GUI 框架
 - [pycaw](https://github.com/AndreMiras/pycaw) — Windows 音量控制
 - [pywinauto](https://github.com/pywinauto/pywinauto) — Windows GUI 自动化
+
+---
+
+## 🕐 版本历史
+
+| 版本 | 日期 | 主要内容 |
+|------|------|---------|
+| **v4.17.0** | 2026-04-08 | 🐛 修复设置保存闪退；修复打开应用程序功能块未勾选管理员时仍以管理员权限启动的问题 |
+| v4.16.0 | 2026-03-31 | 主题整合包 / 自定义字体 / 配色 + 插件 API v2（条件/热键/设置Tab/菜单）+ 快捷键全面自定义 + i18n 全量覆盖 |
+| v4.15.0 | 2026-03-30 | 闪退修复 + OCR 多屏 DPR 修复 |
+| v4.13.0 | 2026-03-30 | 检查更新弹窗 / 桌面快捷方式 / 安装包优化 |
+| v4.9.0  | 2026-03-30 | 语言包市场 + 插件市场 + 安装包中文本地化 |
+| v4.8.0  | 2026-03-30 | onedir 分发 + Inno Setup 安装包 |
 
 ---
 
