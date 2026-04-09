@@ -58,60 +58,127 @@ def _build_sources(download_url: str, tag: str) -> list:
 
 
 class _DownloadWorker(threading.Thread):
-    """后台下载线程"""
+    """后台下载线程，支持无进度超时自动切换源"""
 
-    def __init__(self, url: str, dest: str,
-                 on_progress, on_done, on_error):
+    def __init__(self, sources: list, dest: str,
+                 on_progress, on_done, on_error,
+                 on_source_switch=None,
+                 stall_timeout: float = 6.0):
+        """
+        sources: [(label, url), ...]
+        stall_timeout: 下载进度无变化超过此秒数则切换到下一源（默认6秒）
+        on_source_switch(label): 切换源时的回调（可选）
+        """
         super().__init__(daemon=True)
-        self._url = url
+        self._sources = sources
         self._dest = dest
         self._on_progress = on_progress
         self._on_done = on_done
         self._on_error = on_error
+        self._on_source_switch = on_source_switch
+        self._stall_timeout = stall_timeout
         self._cancelled = False
 
     def cancel(self):
         self._cancelled = True
 
     def run(self):
-        try:
-            req = urllib.request.Request(
-                self._url,
-                headers={"User-Agent": "AutoFlow-Updater/1.0"}
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                total = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 65536
-                with open(self._dest, "wb") as f:
-                    while not self._cancelled:
-                        chunk = resp.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if self._on_progress:
-                            self._on_progress(downloaded, total)
+        last_error = None
+        for label, url in self._sources:
             if self._cancelled:
-                try:
-                    os.remove(self._dest)
-                except Exception:
-                    pass
                 return
-            if self._on_done:
-                self._on_done(self._dest)
-        except Exception as e:
-            if not self._cancelled and self._on_error:
-                self._on_error(str(e))
+            try:
+                if self._on_source_switch and label != self._sources[0][0]:
+                    self._on_source_switch(label)
+                self._download_from(url)
+                return  # 成功，退出
+            except _StallTimeout:
+                last_error = f"下载源 [{label}] 超时无响应，正在切换..."
+                continue
+            except Exception as e:
+                if self._cancelled:
+                    return
+                last_error = str(e)
+                continue
+
+        # 所有源均失败
+        if not self._cancelled and self._on_error:
+            self._on_error(last_error or "所有下载源均失败，请检查网络或手动下载")
+
+    def _download_from(self, url: str):
+        """从单个 URL 下载，无进度超过 stall_timeout 秒则抛出 _StallTimeout"""
+        import time
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "AutoFlow-Updater/1.0"}
+        )
+        with urllib.request.urlopen(req, timeout=self._stall_timeout + 5) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk_size = 65536
+            last_progress_time = time.monotonic()
+
+            with open(self._dest, "wb") as f:
+                while not self._cancelled:
+                    # 用 select/非阻塞读配合超时检测
+                    chunk = None
+                    read_done = threading.Event()
+                    read_result = [None, None]
+
+                    def _read():
+                        try:
+                            read_result[0] = resp.read(chunk_size)
+                        except Exception as ex:
+                            read_result[1] = ex
+                        finally:
+                            read_done.set()
+
+                    t = threading.Thread(target=_read, daemon=True)
+                    t.start()
+                    # 等待最多 stall_timeout 秒
+                    read_done.wait(timeout=self._stall_timeout)
+
+                    if not read_done.is_set():
+                        # 超时仍未读到数据
+                        raise _StallTimeout(f"下载 {self._stall_timeout:.0f}s 无进度")
+
+                    if read_result[1] is not None:
+                        raise read_result[1]
+
+                    chunk = read_result[0]
+                    if not chunk:
+                        break
+
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    last_progress_time = time.monotonic()
+                    if self._on_progress:
+                        self._on_progress(downloaded, total)
+
+        if self._cancelled:
+            try:
+                os.remove(self._dest)
+            except Exception:
+                pass
+            return
+
+        if self._on_done:
+            self._on_done(self._dest)
+
+
+class _StallTimeout(Exception):
+    """下载进度长时间无变化，触发源切换"""
+    pass
 
 
 class UpdateDialog(QDialog):
     """发现新版本弹窗"""
 
     # 跨线程信号
-    _progress_sig = pyqtSignal(int, int)   # downloaded, total
-    _done_sig     = pyqtSignal(str)        # dest_path
-    _error_sig    = pyqtSignal(str)        # error_msg
+    _progress_sig      = pyqtSignal(int, int)   # downloaded, total
+    _done_sig          = pyqtSignal(str)        # dest_path
+    _error_sig         = pyqtSignal(str)        # error_msg
+    _source_switch_sig = pyqtSignal(str)        # new_source_label
 
     def __init__(self, result: dict, current_version: str, parent=None):
         super().__init__(parent)
@@ -256,6 +323,7 @@ class UpdateDialog(QDialog):
         self._progress_sig.connect(self._on_progress)
         self._done_sig.connect(self._on_done)
         self._error_sig.connect(self._on_error)
+        self._source_switch_sig.connect(self._on_source_switch)
 
     # ─── 按钮事件 ─────────────────────────────────────────
     def _on_manual(self):
@@ -287,7 +355,7 @@ class UpdateDialog(QDialog):
         self.reject()
 
     def _on_auto_download(self):
-        """展开下载区，开始下载"""
+        """展开下载区，开始下载（支持无进度超时自动切换源）"""
         if self._worker and self._worker.is_alive():
             return  # 已在下载中
 
@@ -300,7 +368,26 @@ class UpdateDialog(QDialog):
                                 "未获取到版本信息，无法自动下载，请前往下载页手动下载。")
             return
 
-        sources = _build_sources(dl_url, tag)
+        all_sources = _build_sources(dl_url, tag)
+        # 从用户选择的源开始，之后按顺序尝试其余源
+        start_idx = self._src_combo.currentIndex()
+        start_idx = min(start_idx, len(all_sources) - 1)
+        ordered_sources = all_sources[start_idx:] + all_sources[:start_idx]
+
+        # 从设置读取超时阈值（默认 6 秒）
+        stall_timeout = 6.0
+        try:
+            import json as _json, os as _os
+            _cfg = _os.path.join(
+                _os.environ.get("LOCALAPPDATA", _os.path.expanduser("~")),
+                "XinyuCraft", "AutoFlow", "app_config.json"
+            )
+            if _os.path.exists(_cfg):
+                with open(_cfg, "r", encoding="utf-8") as _f:
+                    _d = _json.load(_f)
+                stall_timeout = float(_d.get("update_dl_stall_timeout", 6))
+        except Exception:
+            pass
 
         # 展示下载区
         self._dl_widget.setVisible(True)
@@ -311,23 +398,21 @@ class UpdateDialog(QDialog):
         self._prog_bar.setValue(0)
         self.adjustSize()
 
-        # 选中的源
-        idx = self._src_combo.currentIndex()
-        _, url = sources[min(idx, len(sources) - 1)]
-
         # 目标文件
         filename = f"AutoFlow_{tag}_Setup.exe"
         tmp_dir = tempfile.gettempdir()
         self._dest_path = os.path.join(tmp_dir, filename)
 
         self._worker = _DownloadWorker(
-            url, self._dest_path,
+            ordered_sources, self._dest_path,
             on_progress=lambda d, t: self._progress_sig.emit(d, t),
             on_done=lambda p: self._done_sig.emit(p),
             on_error=lambda e: self._error_sig.emit(e),
+            on_source_switch=lambda lbl: self._source_switch_sig.emit(lbl),
+            stall_timeout=stall_timeout,
         )
         self._worker.start()
-        self._status_lbl.setText(f"正在从 {self._src_combo.currentText()} 下载...")
+        self._status_lbl.setText(f"正在从 {ordered_sources[0][0]} 下载...")
 
     def _on_cancel_dl(self):
         if self._worker:
@@ -340,6 +425,12 @@ class UpdateDialog(QDialog):
         self._prog_bar.setValue(0)
 
     # ─── 跨线程信号槽 ───────────────────────────────────────
+    def _on_source_switch(self, label: str):
+        """切换下载源时更新状态文字"""
+        self._status_lbl.setText(f"⚠ 正在切换到备用源：{label}...")
+        self._prog_bar.setValue(0)
+        self._prog_bar.setRange(0, 100)
+
     def _on_progress(self, downloaded: int, total: int):
         if total > 0:
             pct = int(downloaded * 100 / total)

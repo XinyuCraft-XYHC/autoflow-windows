@@ -2141,32 +2141,35 @@ class MainWindow(QMainWindow):
 
     def _show_update_tip(self, result: dict):
         """有新版本时弹出更新对话框，并在状态栏显示点击按钮"""
-        if not result.get("has_update"):
-            return
-
-        tag = result.get("latest_tag", "")
-
-        # 检查是否已被用户忽略
         try:
-            import json as _json
-            cfg_path = _APP_CONFIG_PATH
-            if os.path.exists(cfg_path):
-                with open(cfg_path, "r", encoding="utf-8") as _f:
-                    _data = _json.load(_f)
-                if _data.get("ignored_update_version") == tag:
-                    # 用户已忽略此版本，只在状态栏显示小提示（点击还是弹窗）
-                    self._show_update_status_bar(result, tag)
-                    return
-        except Exception:
-            pass
+            if not result.get("has_update"):
+                return
 
-        # 弹出更新对话框
-        from .update_dialog import UpdateDialog
-        dlg = UpdateDialog(result, VERSION, parent=self)
-        dlg.exec()
+            tag = result.get("latest_tag", "")
 
-        # 无论对话框结果如何，状态栏也显示版本提示（非侵入，点击打开弹窗）
-        self._show_update_status_bar(result, tag)
+            # 检查是否已被用户忽略
+            try:
+                import json as _json
+                cfg_path = _APP_CONFIG_PATH
+                if os.path.exists(cfg_path):
+                    with open(cfg_path, "r", encoding="utf-8") as _f:
+                        _data = _json.load(_f)
+                    if _data.get("ignored_update_version") == tag:
+                        # 用户已忽略此版本，只在状态栏显示小提示（点击还是弹窗）
+                        self._show_update_status_bar(result, tag)
+                        return
+            except Exception:
+                pass
+
+            # 弹出更新对话框
+            from .update_dialog import UpdateDialog
+            dlg = UpdateDialog(result, VERSION, parent=self)
+            dlg.exec()
+
+            # 无论对话框结果如何，状态栏也显示版本提示（非侵入，点击打开弹窗）
+            self._show_update_status_bar(result, tag)
+        except Exception as _e:
+            logger.error(f"显示更新弹窗时出错: {_e}", exc_info=True)
 
     def _show_update_status_bar(self, result: dict, tag: str):
         """在状态栏显示「发现新版本」按钮，点击打开 UpdateDialog"""

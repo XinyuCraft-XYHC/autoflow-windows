@@ -1160,8 +1160,20 @@ class TriggerMonitor:
         prev_state = self._file_mtimes.get(key, TriggerMonitor._SENTINEL)
 
         if prev_state is TriggerMonitor._SENTINEL:
-            # 首次检测：记录当前状态，不触发
+            # 首次检测：记录当前状态
             self._file_mtimes[key] = cur_state
+            # 若首次检测就满足条件（如启动时已断网），立即触发
+            if cur_state:
+                if direction == "timeout":
+                    reason = f"Ping {host} 超时/不可达"
+                elif direction == "above":
+                    if latency is None:
+                        reason = f"Ping {host} 超时/不可达（视为超过 {threshold_ms:.0f}ms 阈值）"
+                    else:
+                        reason = f"Ping {host} 延迟 {latency:.0f}ms > {threshold_ms:.0f}ms"
+                else:
+                    reason = f"Ping {host} 延迟 {latency:.0f}ms < {threshold_ms:.0f}ms"
+                self._fire(task_id, reason, trig)
             return
 
         # 状态未变化，不触发

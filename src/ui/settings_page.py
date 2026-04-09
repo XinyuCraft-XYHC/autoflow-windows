@@ -1471,6 +1471,39 @@ class SettingsPage(QWidget):
         update_hl.addWidget(self._update_open_btn)
         layout.addWidget(update_row)
 
+        # ── 下载超时阈值设置 ──
+        timeout_row = QWidget()
+        timeout_hl = QHBoxLayout(timeout_row)
+        timeout_hl.setContentsMargins(0, 2, 0, 2)
+        timeout_hl.setSpacing(8)
+        timeout_hl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        timeout_lbl = QLabel(tr("settings.update_dl_timeout", default="下载无进度超时（秒）："))
+        timeout_lbl.setStyleSheet("font-size: 12px; color: #6C7086;")
+        timeout_hl.addWidget(timeout_lbl)
+
+        from PyQt6.QtWidgets import QSpinBox as _QSB
+        self._dl_timeout_spin = _QSB()
+        self._dl_timeout_spin.setRange(3, 60)
+        self._dl_timeout_spin.setValue(
+            int(self.config.extra.get("update_dl_stall_timeout", 6))
+            if hasattr(self.config, "extra") else 6
+        )
+        self._dl_timeout_spin.setSuffix(" s")
+        self._dl_timeout_spin.setFixedWidth(75)
+        self._dl_timeout_spin.setFixedHeight(28)
+        self._dl_timeout_spin.setStyleSheet(
+            "QSpinBox { font-size:11px; border-radius:5px; padding:2px 6px; "
+            "background:#313244; color:#CDD6F4; border:1px solid #45475A; }"
+        )
+        self._dl_timeout_spin.setToolTip(
+            tr("settings.update_dl_timeout_tip",
+               default="自动下载更新时，若进度长时间无变化则切换到下一个下载源")
+        )
+        self._dl_timeout_spin.valueChanged.connect(self._save_dl_timeout)
+        timeout_hl.addWidget(self._dl_timeout_spin)
+        layout.addWidget(timeout_row)
+
         # ── GitHub / Gitee 链接行 ──
         link_row = QWidget()
         link_hl = QHBoxLayout(link_row)
@@ -1580,6 +1613,25 @@ class SettingsPage(QWidget):
         scroll.setWidget(page)
         return scroll
 
+    def _save_dl_timeout(self, value: int) -> None:
+        """保存下载超时阈值到配置文件"""
+        try:
+            import json as _json, os as _os
+            _cfg = _os.path.join(
+                _os.environ.get("LOCALAPPDATA", _os.path.expanduser("~")),
+                "XinyuCraft", "AutoFlow", "app_config.json"
+            )
+            if _os.path.exists(_cfg):
+                with open(_cfg, "r", encoding="utf-8") as _f:
+                    _d = _json.load(_f)
+            else:
+                _d = {}
+            _d["update_dl_stall_timeout"] = value
+            with open(_cfg, "w", encoding="utf-8") as _f:
+                _json.dump(_d, _f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
     def _do_check_update(self, current_version: str) -> None:
         """触发后台版本检测，结果通过信号安全回到主线程"""
         from ..updater import check_update
@@ -1602,35 +1654,45 @@ class SettingsPage(QWidget):
 
     def _apply_update_result(self, result: dict) -> None:
         """在主线程更新版本检测结果 UI"""
-        if result.get("error"):
-            self._update_status_lbl.setText(f"❌ {result['error']}")
-            self._update_status_lbl.setStyleSheet("font-size: 12px; color: #f87171;")
-            self._update_open_btn.setVisible(False)
-            return
+        try:
+            if result.get("error"):
+                self._update_status_lbl.setText(f"❌ {result['error']}")
+                self._update_status_lbl.setStyleSheet("font-size: 12px; color: #f87171;")
+                self._update_open_btn.setVisible(False)
+                return
 
-        if result.get("has_update"):
-            tag = result.get("latest_tag", "")
-            self._update_status_lbl.setText(tr("settings.update_found").format(tag=tag))
-            self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
-            self._update_open_btn.setVisible(True)
-            self._update_open_btn.setText(tr("settings.update_open_btn"))
-            # 断开旧连接再重新连接，防止多次触发
-            try:
-                self._update_open_btn.clicked.disconnect()
-            except Exception:
-                pass
-            # 点击「查看详情」→ 弹出 UpdateDialog
-            def _open_update_dialog(_result=result):
-                from .update_dialog import UpdateDialog
-                from ..version import VERSION
-                dlg = UpdateDialog(_result, VERSION, parent=self)
-                dlg.exec()
-            self._update_open_btn.clicked.connect(_open_update_dialog)
-        else:
-            tag = result.get("latest_tag", "")
-            self._update_status_lbl.setText(tr("settings.update_latest").format(tag=tag))
-            self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
-            self._update_open_btn.setVisible(False)
+            if result.get("has_update"):
+                tag = result.get("latest_tag", "")
+                self._update_status_lbl.setText(tr("settings.update_found").format(tag=tag))
+                self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
+                self._update_open_btn.setVisible(True)
+                self._update_open_btn.setText(tr("settings.update_open_btn"))
+                # 断开旧连接再重新连接，防止多次触发
+                try:
+                    self._update_open_btn.clicked.disconnect()
+                except Exception:
+                    pass
+                # 点击「查看详情」→ 弹出 UpdateDialog
+                def _open_update_dialog(_result=result):
+                    try:
+                        from .update_dialog import UpdateDialog
+                        from ..version import VERSION
+                        dlg = UpdateDialog(_result, VERSION, parent=self)
+                        dlg.exec()
+                    except Exception as _de:
+                        import logging as _log
+                        _log.getLogger("autoflow.settings").error(
+                            f"打开更新对话框失败: {_de}", exc_info=True)
+                self._update_open_btn.clicked.connect(_open_update_dialog)
+            else:
+                tag = result.get("latest_tag", "")
+                self._update_status_lbl.setText(tr("settings.update_latest").format(tag=tag))
+                self._update_status_lbl.setStyleSheet("font-size: 12px; color: #4ade80;")
+                self._update_open_btn.setVisible(False)
+        except Exception as _e:
+            import logging as _log
+            _log.getLogger("autoflow.settings").error(
+                f"处理更新检测结果时出错: {_e}", exc_info=True)
 
     # ─── 加载/保存 ───
     def _load_config(self):

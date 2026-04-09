@@ -1502,11 +1502,12 @@ class BlockCard(QFrame):
     card_double_clicked = pyqtSignal(object)
 
     def __init__(self, block: Block, depth: int = 0,
-                 collapsed: bool = False, parent=None):
+                 collapsed: bool = False, extra_color: str = None, parent=None):
         super().__init__(parent)
         self.block     = block
         self.depth     = depth
         self.collapsed = collapsed
+        self._extra_color = extra_color  # group_end 继承 group 颜色
         self._selected = False   # 多选状态
         self._drag_start_pos = None
         self._dragged = False              # 本次 press 是否已触发拖拽
@@ -1559,7 +1560,8 @@ class BlockCard(QFrame):
                 info  = BLOCK_TYPES.get(bt, {})
                 color = info.get("color", "#888")
                 if bt in ("group", "group_end"):
-                    color = self.block.params.get("color", color)
+                    color = (self._extra_color
+                             or self.block.params.get("color", color))
                 if bt in ("if_block", "elif_block", "else_block", "if_end"):
                     color = "#FF9A3C"
                 self.setStyleSheet(f"""
@@ -1635,7 +1637,9 @@ class BlockCard(QFrame):
         is_marker       = is_open_marker or is_close_marker or is_branch
 
         if bt in ("group", "group_end"):
-            color = self.block.params.get("color", color)
+            # group_end 优先使用从开始块同步过来的颜色（extra_color）
+            color = (self._extra_color
+                     or self.block.params.get("color", color))
 
         # if系列用醒目橙色
         if bt in ("if_block", "elif_block", "else_block", "if_end"):
@@ -4567,9 +4571,15 @@ class BlockListWidget(QWidget):
 
         depth = 0
         skip_stack = []   # True=折叠中，False=展开中
+        # 开始标记 block_id → 开始块对象（用于结束块颜色同步）
+        open_block_map: dict = {}   # block_id of open_marker -> Block
 
-        # 收集 (block, display_depth, block_list_idx) 列表，然后统一渲染带 InsertHandle
-        visible_items = []   # List of (block, display_depth, block_list_idx)
+        # 收集 (block, display_depth, block_list_idx, extra_color) 列表，然后统一渲染带 InsertHandle
+        # extra_color: str|None，group_end 用于继承 group 颜色
+        visible_items = []   # List of (block, display_depth, block_list_idx, extra_color)
+
+        # 开始标记 id 的栈（与 skip_stack 一一对应）
+        open_id_stack = []
 
         i = 0
         while i < len(self._blocks):
@@ -4581,9 +4591,17 @@ class BlockListWidget(QWidget):
             if bt in _CLOSE_MARKERS:
                 depth = max(0, depth - 1)
                 was_collapsed = skip_stack.pop() if skip_stack else False
+                open_id = open_id_stack.pop() if open_id_stack else None
                 outer_collapsed = any(skip_stack)
-                if not outer_collapsed:
-                    visible_items.append((block, depth, i))
+                # 结束块：仅在外层未折叠 且 自身对应的开始块未折叠时才显示
+                if not outer_collapsed and not was_collapsed:
+                    # 颜色同步：从对应的开始块拿颜色
+                    extra_color = None
+                    if open_id and bt == "group_end":
+                        open_blk = open_block_map.get(open_id)
+                        if open_blk:
+                            extra_color = open_blk.params.get("color", None)
+                    visible_items.append((block, depth, i, extra_color))
                 i += 1
                 continue
 
@@ -4593,22 +4611,27 @@ class BlockListWidget(QWidget):
                     i += 1
                     continue
                 display_depth = max(0, depth - 1)
-                visible_items.append((block, display_depth, i))
+                visible_items.append((block, display_depth, i, None))
                 i += 1
                 continue
 
             if in_collapsed:
                 if bt in _OPEN_MARKERS:
                     skip_stack.append(True)
+                    open_id_stack.append(block.id)
+                    open_block_map[block.id] = block
                     depth += 1
                 i += 1
                 continue
 
-            visible_items.append((block, depth, i))
+            visible_items.append((block, depth, i, None))
 
             if bt in _OPEN_MARKERS:
+                is_collapsed = self._collapsed.get(block.id, False)
                 depth += 1
-                skip_stack.append(self._collapsed.get(block.id, False))
+                skip_stack.append(is_collapsed)
+                open_id_stack.append(block.id)
+                open_block_map[block.id] = block
 
             i += 1
 
@@ -4628,9 +4651,10 @@ class BlockListWidget(QWidget):
         # 最顶端：插入到位置 0（列表最前面）
         _insert_handle(0)
 
-        for block, disp_depth, blk_idx in visible_items:
+        for block, disp_depth, blk_idx, extra_color in visible_items:
             collapsed = self._collapsed.get(block.id, False)
-            card = self._make_card(block, widget_idx, depth=disp_depth, collapsed=collapsed)
+            card = self._make_card(block, widget_idx, depth=disp_depth,
+                                   collapsed=collapsed, extra_color=extra_color)
             self._body_layout.insertWidget(widget_idx, card)
             self._card_widgets.append(card)
             widget_idx += 1
@@ -4657,9 +4681,10 @@ class BlockListWidget(QWidget):
 
 
     def _make_card(self, block: Block, idx: int, depth: int = 0,
-                   collapsed: bool = False) -> QWidget:
+                   collapsed: bool = False, extra_color: str = None) -> QWidget:
         try:
-            card = BlockCard(block, depth=depth, collapsed=collapsed)
+            card = BlockCard(block, depth=depth, collapsed=collapsed,
+                             extra_color=extra_color)
         except Exception as _e:
             import traceback
             # 渲染失败时生成一个占位错误卡片，不影响其他功能块

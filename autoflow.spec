@@ -25,6 +25,9 @@ hiddenimports = [
     'src.ui.effects', 'src.ui.themes', 'src.ui.styles',
     'src.ui.trigger_editor', 'src.ui.constraint_editor',
     'src.ui.plugin_page', 'src.ui.onboarding',
+    'src.ui.theme_manager', 'src.ui.theme_market',
+    'src.ui.language_market', 'src.ui.plugin_market',
+    'src.ui.update_dialog',
     # src.engine
     'src.engine', 'src.engine.models', 'src.engine.runner',
     'src.engine.trigger_monitor',

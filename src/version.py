@@ -555,18 +555,19 @@
 #     遍历所有顶层窗口逐一用 child_window(**ctrl_kw).wrapper_object() 尝试找控件；
 #     优先检查与 hwnd 对应的窗口，对弹出子对话框（类名不稳定）也能正确定位；
 
-VERSION       = "4.17.0"
-VERSION_TUPLE = (4, 17, 0)
+VERSION       = "4.18.0"
+VERSION_TUPLE = (4, 18, 0)
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"
 
-# v4.17.0  2026-04-05
-#   【BUG修复】
-#   fix: 设置页保存时，config_changed 信号触发链中的异常被正确捕获，不再导致闪退
-#   fix: main_window._on_config_changed 加 try/except 防护，异常写入日志而非崩溃
-#   fix: 打开应用程序功能块 as_admin=False 时改用 ShellExecute "open" 而非 Popen，
-#        避免继承 AutoFlow 管理员令牌；需要 wait/cwd/run_mode/save_pid 时回退 Popen
+# v4.18.0  2026-04-10
+#   【Issue #2 全量修复】
+#   fix: 检查更新/弹出更新对话框时加全局 try/except 防护，异常写日志而非闪退
+#   fix: 自动下载更新支持无进度超时自动切换源（默认 6 秒），在设置→关于 Tab 可调
+#   fix: Ping 延迟触发器首次检测满足条件时立即触发（不再静默丢弃首次满足的断网事件）
+#   fix: 折叠块（group/loop/if）折叠时结束块（group_end/loop_end/if_end）同步隐藏
+#   fix: group_end 结束块颜色与对应 group 开始块保持同步
 
 # v4.16.0  2026-03-31
 #   【主题系统升级 + 插件系统扩展】
