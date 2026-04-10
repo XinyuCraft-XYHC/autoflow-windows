@@ -1796,133 +1796,153 @@ class SettingsPage(QWidget):
             self._refresh_model_preset_list(ai_provider)
 
     def _save(self):
-        c = self.config
-        # 记录保存前的语言，用于检测是否变化
-        old_language = getattr(c, 'language', 'zh_CN')
-
-        c.auto_start_enabled = self._auto_start_cb.isChecked()
-        c.auto_start_task_id = self._auto_task_combo.currentData() or ""
-        c.launch_behavior    = self._launch_behavior_combo.currentData() or "show"
-        c.minimize_to_tray   = self._minimize_cb.isChecked()
-        c.show_run_log       = self._show_log_cb.isChecked()
-        c.minimize_on_run    = self._minimize_on_run_cb.isChecked()
-        c.coord_pick_hotkey  = self._coord_hotkey.text().strip() or "F9"
-        c.macro_stop_hotkey  = self._macro_stop_hotkey.text().strip() or "F10"
-        c.force_stop_hotkey  = self._force_stop_hotkey.text().strip() or "ctrl+alt+s"
-        
-        # 系统快捷键
-        c.undo_hotkey        = self._undo_hotkey.text().strip() or "Ctrl+Z"
-        c.redo_hotkey        = self._redo_hotkey.text().strip() or "Ctrl+Y"
-        c.new_task_hotkey    = self._new_task_hotkey.text().strip() or "Ctrl+T"
-        c.new_project_hotkey = self._new_project_hotkey.text().strip() or "Ctrl+N"
-        c.open_project_hotkey = self._open_project_hotkey.text().strip() or "Ctrl+O"
-        c.save_project_hotkey = self._save_project_hotkey.text().strip() or "Ctrl+S"
-        c.history_hotkey     = self._history_hotkey.text().strip() or "Ctrl+H"
-
-        c.reopen_last_project = self._reopen_cb.isChecked()
-        c.auto_save_enabled   = self._auto_save_cb.isChecked()
-        c.auto_save_interval  = self._auto_save_interval.value()
-        c.max_undo_steps      = self._max_undo.value()
-        c.screenshot_default_dir = self._screenshot_dir.text()
-
-        c.smtp_server   = self._smtp_server.text()
-        c.smtp_port     = self._smtp_port.value()
-        c.smtp_user     = self._smtp_user.text()
-        c.smtp_password = self._smtp_pass.text()
-        c.smtp_ssl      = self._smtp_ssl.isChecked()
-
-        c.imap_server   = self._imap_server.text()
-        c.imap_port     = self._imap_port.value()
-        c.imap_user     = self._imap_user.text()
-        c.imap_password = self._imap_pass.text()
-        c.imap_ssl      = self._imap_ssl.isChecked()
-
-        c.log_path      = self._log_path.text()
-        c.max_log_lines = self._max_log.value()
-
-        c.theme = self._theme_combo.currentData() or "dark"
-        # 如果选的是整合包主题（pack:id），自动同步 theme_pack_path
-        theme_val = c.theme
-        if isinstance(theme_val, str) and theme_val.startswith("pack:"):
-            pack_id = theme_val[5:]
-            c.theme_pack_path = pack_id
-            # 整合包的 base_theme 作为真实 theme key
-            try:
-                from .theme_manager import get_installed_pack
-                pack = get_installed_pack(pack_id)
-                if pack and pack.base_theme:
-                    c.theme = pack.base_theme
-            except Exception:
-                c.theme = "dark"
-        else:
-            # 选了非整合包主题，清除整合包
-            c.theme_pack_path = ""
-        c.language = self._lang_combo.currentData() or "zh_CN"
-
-        # 字体/配色/整合包
-        c.theme_font_family = self._font_family_edit.text().strip()
-        c.theme_font_size   = self._font_size_spin.value()
-        # 配色覆盖：文本 → dict
-        pal_text = self._palette_override_edit.toPlainText().strip()
-        pal_dict = {}
-        for line in pal_text.splitlines():
-            line = line.strip()
-            if "=" in line:
-                k, _, v = line.partition("=")
-                pal_dict[k.strip()] = v.strip()
-        c.theme_palette_override = pal_dict
-        # theme_pack_path 由 _import_theme_pack/_unload 直接写入 self.config，这里同步
-
-        # AI 配置
-        c.ai_provider     = self._ai_provider.currentData() or "openai"
-        c.ai_model        = self._ai_model.text().strip()
-        c.ai_api_key      = self._ai_api_key.text().strip()
-        c.ai_base_url     = self._ai_base_url.text().strip()
-        c.ai_temperature  = self._ai_temperature.value()
-        c.ai_max_tokens   = self._ai_max_tokens.value()
-        c.ai_system_prompt = self._ai_system_prompt_edit.toPlainText().strip()
-
-        # 立即应用语言设置（set_language 内部会通知所有 UI 观察者刷新文字）
-        from ..i18n import set_language, tr as _tr, get_language
+        import traceback as _tb
+        import logging as _log
+        _logger = _log.getLogger("autoflow.settings")
+        # 提前初始化，保证下方任何分支都能使用
+        from ..i18n import tr as _tr, get_language
         old_lang = get_language()
-        set_language(c.language)
 
-        # 如果语言发生了变化，通知用户需要重启
-        if old_lang != c.language:
+        try:
+            c = self.config
+            c.auto_start_enabled = self._auto_start_cb.isChecked()
+            c.auto_start_task_id = self._auto_task_combo.currentData() or ""
+            c.launch_behavior    = self._launch_behavior_combo.currentData() or "show"
+            c.minimize_to_tray   = self._minimize_cb.isChecked()
+            c.show_run_log       = self._show_log_cb.isChecked()
+            c.minimize_on_run    = self._minimize_on_run_cb.isChecked()
+            c.coord_pick_hotkey  = self._coord_hotkey.text().strip() or "F9"
+            c.macro_stop_hotkey  = self._macro_stop_hotkey.text().strip() or "F10"
+            c.force_stop_hotkey  = self._force_stop_hotkey.text().strip() or "ctrl+alt+s"
+
+            # 系统快捷键
+            c.undo_hotkey        = self._undo_hotkey.text().strip() or "Ctrl+Z"
+            c.redo_hotkey        = self._redo_hotkey.text().strip() or "Ctrl+Y"
+            c.new_task_hotkey    = self._new_task_hotkey.text().strip() or "Ctrl+T"
+            c.new_project_hotkey = self._new_project_hotkey.text().strip() or "Ctrl+N"
+            c.open_project_hotkey = self._open_project_hotkey.text().strip() or "Ctrl+O"
+            c.save_project_hotkey = self._save_project_hotkey.text().strip() or "Ctrl+S"
+            c.history_hotkey     = self._history_hotkey.text().strip() or "Ctrl+H"
+
+            c.reopen_last_project = self._reopen_cb.isChecked()
+            c.auto_save_enabled   = self._auto_save_cb.isChecked()
+            c.auto_save_interval  = self._auto_save_interval.value()
+            c.max_undo_steps      = self._max_undo.value()
+            c.screenshot_default_dir = self._screenshot_dir.text()
+
+            c.smtp_server   = self._smtp_server.text()
+            c.smtp_port     = self._smtp_port.value()
+            c.smtp_user     = self._smtp_user.text()
+            c.smtp_password = self._smtp_pass.text()
+            c.smtp_ssl      = self._smtp_ssl.isChecked()
+
+            c.imap_server   = self._imap_server.text()
+            c.imap_port     = self._imap_port.value()
+            c.imap_user     = self._imap_user.text()
+            c.imap_password = self._imap_pass.text()
+            c.imap_ssl      = self._imap_ssl.isChecked()
+
+            c.log_path      = self._log_path.text()
+            c.max_log_lines = self._max_log.value()
+
+            c.theme = self._theme_combo.currentData() or "dark"
+            # 如果选的是整合包主题（pack:id），自动同步 theme_pack_path
+            theme_val = c.theme
+            if isinstance(theme_val, str) and theme_val.startswith("pack:"):
+                pack_id = theme_val[5:]
+                c.theme_pack_path = pack_id
+                try:
+                    from .theme_manager import get_installed_pack
+                    pack = get_installed_pack(pack_id)
+                    if pack and pack.base_theme:
+                        c.theme = pack.base_theme
+                except Exception:
+                    c.theme = "dark"
+            else:
+                c.theme_pack_path = ""
+            c.language = self._lang_combo.currentData() or "zh_CN"
+
+            # 字体/配色
+            c.theme_font_family = self._font_family_edit.text().strip()
+            c.theme_font_size   = self._font_size_spin.value()
+            pal_text = self._palette_override_edit.toPlainText().strip()
+            pal_dict = {}
+            for line in pal_text.splitlines():
+                line = line.strip()
+                if "=" in line:
+                    k, _, v = line.partition("=")
+                    pal_dict[k.strip()] = v.strip()
+            c.theme_palette_override = pal_dict
+
+            # AI 配置
+            c.ai_provider     = self._ai_provider.currentData() or "openai"
+            c.ai_model        = self._ai_model.text().strip()
+            c.ai_api_key      = self._ai_api_key.text().strip()
+            c.ai_base_url     = self._ai_base_url.text().strip()
+            c.ai_temperature  = self._ai_temperature.value()
+            c.ai_max_tokens   = self._ai_max_tokens.value()
+            c.ai_system_prompt = self._ai_system_prompt_edit.toPlainText().strip()
+
+        except Exception as _e:
+            _logger.error(f"_save 读取 UI 值时出错: {_e}\n{_tb.format_exc()}")
             from PyQt6.QtWidgets import QMessageBox
-            from PyQt6.QtCore import QTimer
-            reply = QMessageBox.warning(
-                self,
-                _tr("settings.restart_title"),
-                _tr("settings.restart_msg"),
-                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Ok
-            )
-            
-            if reply == QMessageBox.StandardButton.Ok:
-                # 找到主窗口，走 _quit_app() 完整退出流程（停止触发器/runner/热键，再 QApplication.quit）
-                def _do_quit():
-                    from PyQt6.QtWidgets import QApplication
-                    main_win = None
-                    for w in QApplication.topLevelWidgets():
-                        if hasattr(w, '_quit_app'):
-                            main_win = w
-                            break
-                    if main_win is not None:
-                        main_win._quit_app()
-                    else:
-                        QApplication.quit()
-                QTimer.singleShot(2000, _do_quit)
-        
-        self._apply_autostart(c.auto_start_enabled)
+            QMessageBox.critical(self, "保存失败",
+                                 f"读取设置时发生错误，请检查日志。\n{_e}")
+            return
+
+        # ── 应用语言（单独 try，失败不阻止其余保存步骤）──
+        try:
+            from ..i18n import set_language
+            set_language(c.language)
+        except Exception as _e:
+            _logger.error(f"set_language 失败: {_e}\n{_tb.format_exc()}")
+
+        # ── 语言变化 → 提示重启 ──
+        if old_lang != c.language:
+            try:
+                from PyQt6.QtWidgets import QMessageBox
+                from PyQt6.QtCore import QTimer
+                reply = QMessageBox.warning(
+                    self,
+                    _tr("settings.restart_title"),
+                    _tr("settings.restart_msg"),
+                    QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Ok
+                )
+                if reply == QMessageBox.StandardButton.Ok:
+                    def _do_quit():
+                        from PyQt6.QtWidgets import QApplication
+                        main_win = None
+                        for w in QApplication.topLevelWidgets():
+                            if hasattr(w, '_quit_app'):
+                                main_win = w
+                                break
+                        if main_win is not None:
+                            main_win._quit_app()
+                        else:
+                            QApplication.quit()
+                    QTimer.singleShot(2000, _do_quit)
+            except Exception as _e:
+                _logger.error(f"语言切换提示失败: {_e}\n{_tb.format_exc()}")
+
+        # ── 开机自启 ──
+        try:
+            self._apply_autostart(c.auto_start_enabled)
+        except Exception as _e:
+            _logger.error(f"_apply_autostart 失败: {_e}\n{_tb.format_exc()}")
+
+        # ── 通知配置变更 ──
         try:
             self.config_changed.emit(c)
         except Exception as _e:
-            import traceback, logging as _logging
-            _logging.getLogger("autoflow.settings").error(
-                f"config_changed 信号处理失败: {_e}\n{traceback.format_exc()}")
+            _logger.error(f"config_changed 信号处理失败: {_e}\n{_tb.format_exc()}")
+
+        # ── 保存成功提示（仅在语言未变化时弹，语言变化走重启提示）──
         if old_lang == c.language:
-            QMessageBox.information(self, _tr("settings.saved"), _tr("settings.saved_msg"))
+            try:
+                QMessageBox.information(self, _tr("settings.saved"), _tr("settings.saved_msg"))
+            except Exception as _e:
+                _logger.error(f"保存成功提示失败: {_e}\n{_tb.format_exc()}")
 
     def _open_language_market(self):
         from .language_market import LanguageMarketPage
