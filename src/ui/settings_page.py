@@ -1798,6 +1798,7 @@ class SettingsPage(QWidget):
     def _save(self):
         import traceback as _tb
         import logging as _log
+        from PyQt6.QtWidgets import QMessageBox  # 提前导入，避免 UnboundLocalError
         _logger = _log.getLogger("autoflow.settings")
         # 提前初始化，保证下方任何分支都能使用
         from ..i18n import tr as _tr, get_language
@@ -1885,7 +1886,6 @@ class SettingsPage(QWidget):
 
         except Exception as _e:
             _logger.error(f"_save 读取 UI 值时出错: {_e}\n{_tb.format_exc()}")
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "保存失败",
                                  f"读取设置时发生错误，请检查日志。\n{_e}")
             return
@@ -1900,7 +1900,6 @@ class SettingsPage(QWidget):
         # ── 语言变化 → 提示重启 ──
         if old_lang != c.language:
             try:
-                from PyQt6.QtWidgets import QMessageBox
                 from PyQt6.QtCore import QTimer
                 reply = QMessageBox.warning(
                     self,
