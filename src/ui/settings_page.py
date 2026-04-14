@@ -1683,7 +1683,9 @@ class SettingsPage(QWidget):
                         import logging as _log
                         _log.getLogger("autoflow.settings").error(
                             f"打开更新对话框失败: {_de}", exc_info=True)
-                self._update_open_btn.clicked.connect(_open_update_dialog)
+                # 用 lambda 阻断 clicked 信号传入的 checked:bool，避免覆盖 _result 默认参数
+                self._update_open_btn.clicked.connect(
+                    lambda _checked=False, _fn=_open_update_dialog: _fn())
             else:
                 tag = result.get("latest_tag", "")
                 self._update_status_lbl.setText(tr("settings.update_latest").format(tag=tag))

@@ -4539,6 +4539,13 @@ class BlockListWidget(QWidget):
 
     def set_blocks(self, blocks: List[Block]):
         self._blocks = blocks
+        # 同步 group/loop 块的 params["collapsed"] 默认折叠状态
+        # 仅当该 block.id 尚未存在于 _collapsed 字典时才应用（避免覆盖用户手动折叠/展开的状态）
+        for b in self._blocks:
+            if b.block_type in _OPEN_MARKERS and b.id not in self._collapsed:
+                default_col = b.params.get("collapsed", False)
+                if default_col:
+                    self._collapsed[b.id] = True
         self._refresh()
 
     def set_all_tasks(self, tasks):

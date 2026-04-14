@@ -5,7 +5,7 @@
 
 ; ── 版本号由 build.py 通过 /DAPP_VERSION=x.x.x 参数传入 ──
 #ifndef APP_VERSION
-  #define APP_VERSION "4.18.0"
+  #define APP_VERSION "4.18.1"
 #endif
 
 #define APP_NAME        "AutoFlow"

@@ -2195,7 +2195,8 @@ class MainWindow(QMainWindow):
             from .update_dialog import UpdateDialog
             dlg = UpdateDialog(_r, VERSION, parent=self)
             dlg.exec()
-        self._update_tip_btn.clicked.connect(_open_dlg)
+        # 用 lambda 阻断 clicked 传入的 checked:bool 参数，避免覆盖默认参数 _r
+        self._update_tip_btn.clicked.connect(lambda _checked=False, _fn=_open_dlg: _fn())
 
     # ─────────────────────── 远程公告 ───────────────────────
 
