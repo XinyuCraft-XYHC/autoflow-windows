@@ -4538,26 +4538,44 @@ except Exception as e:
                        ".vbs", ".wsf", ".reg", ".msi", ".msc"}
         if ext in _SHELL_EXTS:
             try:
-                import ctypes as _ctypes
-                SW_SHOWNORMAL = 1
-                SW_SHOWMINIMIZED = 2
-                SW_SHOWMAXIMIZED = 3
-                sw = SW_SHOWNORMAL
-                if run_mode == "minimized":
-                    sw = SW_SHOWMINIMIZED
-                elif run_mode == "maximized":
-                    sw = SW_SHOWMAXIMIZED
-                verb = "runas" if as_admin else "open"
-                params = args if args else None
-                ret = _ctypes.windll.shell32.ShellExecuteW(
-                    None, verb, path, params,
-                    cwd if cwd else None, sw
-                )
-                if ret <= 32:
-                    self._log("WARN", f"    启动应用(Shell)失败，错误码: {ret}，尝试 os.startfile")
-                    _os.startfile(path)
+                _show_map2 = {"minimized": 2, "maximized": 3}
+                _sw2 = _show_map2.get(run_mode, 1)
+                if as_admin:
+                    # 以管理员身份运行：ShellExecuteW runas
+                    import ctypes as _ctypes
+                    ret = _ctypes.windll.shell32.ShellExecuteW(
+                        None, "runas", path, args if args else None,
+                        cwd if cwd else None, _sw2
+                    )
+                    if ret <= 32:
+                        self._log("WARN", f"    启动应用(管理员)失败，错误码: {ret}")
+                    else:
+                        self._log("INFO", f"    已以管理员身份启动(Shell): {path}")
                 else:
-                    self._log("INFO", f"    已通过 Shell 启动: {path}")
+                    # 以普通用户身份运行：通过 IShellDispatch2 COM 降权
+                    try:
+                        import comtypes.client as _cc2
+                        _shell2 = _cc2.CreateObject("Shell.Application")
+                        _shell2.ShellExecute(
+                            path,
+                            args if args else "",
+                            cwd if cwd else "",
+                            "",
+                            _sw2
+                        )
+                        self._log("INFO", f"    已启动（普通权限/COM降权）(Shell): {path}")
+                    except Exception as _ce2:
+                        self._log("WARN", f"    COM降权启动失败: {_ce2}，回退到 ShellExecuteW open")
+                        import ctypes as _ctypes2
+                        ret = _ctypes2.windll.shell32.ShellExecuteW(
+                            None, "open", path, args if args else None,
+                            cwd if cwd else None, _sw2
+                        )
+                        if ret <= 32:
+                            self._log("WARN", f"    启动应用(Shell)失败，错误码: {ret}，尝试 os.startfile")
+                            _os.startfile(path)
+                        else:
+                            self._log("INFO", f"    已通过 Shell 启动: {path}")
             except Exception as _e:
                 self._log("ERROR", f"    启动应用失败: {_e}")
             return
@@ -4608,31 +4626,37 @@ except Exception as e:
             else:
                 # 以普通用户身份启动
                 # AutoFlow 本身以管理员权限运行，直接 Popen 会继承管理员令牌。
-                # 通过 explorer.exe 代理启动，可以让子进程以当前登录用户（非管理员）权限运行。
-                # 注意：explorer 代理模式不支持 wait/save_pid/cwd/run_mode，
-                # 如果需要这些功能则回退到直接 Popen。
-                _needs_advanced = wait or save_pid or cwd or run_mode in ("hidden", "minimized", "maximized")
-                _launched_via_explorer = False
+                # 正确降权方案：通过 IShellDispatch2 COM 接口（即 explorer.exe Shell 对象）启动，
+                # 该接口在 Shell host 的标准用户上下文中执行，不会继承父进程的管理员令牌。
+                # 注意：COM 降权模式不支持 wait/save_pid/hidden/cwd，需要这些功能时回退到 Popen。
+                _needs_advanced = wait or save_pid or cwd or run_mode in ("hidden",)
+                _launched_via_com = False
                 if not _needs_advanced:
                     try:
-                        import ctypes as _ct
-                        # 使用 ShellExecuteW open verb（非 runas），让 explorer 以普通权限启动
-                        _cmd_line = path
-                        if args:
-                            _cmd_line = f'"{path}" {args}' if " " in path else f"{path} {args}"
-                        ret = _ct.windll.shell32.ShellExecuteW(
-                            None, "open", path, args if args else None,
-                            None, SW_SHOWNORMAL
+                        import comtypes.client as _cc
+                        import comtypes
+                        # 获取 Shell.Application 对象（IShellDispatch2）
+                        _shell = _cc.CreateObject("Shell.Application")
+                        # ShellExecute(File, Arguments, Directory, Operation, Show)
+                        # Operation="" / "open" 均以普通用户权限执行（不提权）
+                        _show_map = {
+                            "minimized": 2,   # SW_SHOWMINIMIZED
+                            "maximized": 3,   # SW_SHOWMAXIMIZED
+                        }
+                        _show = _show_map.get(run_mode, 1)  # SW_SHOWNORMAL=1
+                        _shell.ShellExecute(
+                            path,
+                            args if args else "",
+                            cwd if cwd else "",
+                            "",   # 空操作 = open，不触发 UAC 提权
+                            _show
                         )
-                        if ret > 32:
-                            self._log("INFO", f"    已启动（普通权限）: {path}")
-                            _launched_via_explorer = True
-                        else:
-                            self._log("WARN", f"    ShellExecute open 失败（错误码:{ret}），回退到 Popen")
-                    except Exception as _se:
-                        self._log("WARN", f"    ShellExecute open 失败: {_se}，回退到 Popen")
+                        self._log("INFO", f"    已启动（普通权限/COM降权）: {path}")
+                        _launched_via_com = True
+                    except Exception as _ce:
+                        self._log("WARN", f"    COM降权启动失败: {_ce}，回退到 Popen")
 
-                if not _launched_via_explorer:
+                if not _launched_via_com:
                     proc = subprocess.Popen(
                         cmd,
                         cwd=cwd if cwd else None,
