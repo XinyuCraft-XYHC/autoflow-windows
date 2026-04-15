@@ -4552,66 +4552,15 @@ except Exception as e:
                     else:
                         self._log("INFO", f"    已以管理员身份启动(Shell): {path}")
                 else:
-                    # 以普通用户身份运行：用 explorer.exe 令牌 + CreateProcessWithTokenW 降权
-                    _s_launched = False
+                    # 以普通用户身份运行：通过 explorer.exe 中转降权
+                    # explorer.exe 本身运行在标准用户令牌下，将路径传给它即可降权执行
                     try:
-                        import ctypes as _ct2, ctypes.wintypes as _wt2
-                        import psutil as _ps2
-                        _exp_pid2 = None
-                        for _pp2 in _ps2.process_iter(["name", "pid"]):
-                            if _pp2.info["name"].lower() == "explorer.exe":
-                                _exp_pid2 = _pp2.info["pid"]
-                                break
-                        if _exp_pid2 is None:
-                            raise RuntimeError("explorer.exe 未找到")
-                        _hProc2 = _ct2.windll.kernel32.OpenProcess(0x0400, False, _exp_pid2)
-                        if not _hProc2:
-                            raise _ct2.WinError(_ct2.get_last_error())
-                        _hTok2 = _wt2.HANDLE()
-                        if not _ct2.windll.advapi32.OpenProcessToken(_hProc2, 0x0002 | 0x0008, _ct2.byref(_hTok2)):
-                            _ct2.windll.kernel32.CloseHandle(_hProc2)
-                            raise _ct2.WinError(_ct2.get_last_error())
-                        _ct2.windll.kernel32.CloseHandle(_hProc2)
-                        _hDup2 = _wt2.HANDLE()
-                        if not _ct2.windll.advapi32.DuplicateTokenEx(
-                            _hTok2, 0x0001 | 0x0002 | 0x0008, None, 2, 1, _ct2.byref(_hDup2)
-                        ):
-                            _ct2.windll.kernel32.CloseHandle(_hTok2)
-                            raise _ct2.WinError(_ct2.get_last_error())
-                        _ct2.windll.kernel32.CloseHandle(_hTok2)
-
-                        class _SI2(ctypes.Structure):
-                            _fields_ = [("cb",_wt2.DWORD),("lpReserved",_wt2.LPWSTR),("lpDesktop",_wt2.LPWSTR),
-                                        ("lpTitle",_wt2.LPWSTR),("dwX",_wt2.DWORD),("dwY",_wt2.DWORD),
-                                        ("dwXSize",_wt2.DWORD),("dwYSize",_wt2.DWORD),("dwXCountChars",_wt2.DWORD),
-                                        ("dwYCountChars",_wt2.DWORD),("dwFillAttribute",_wt2.DWORD),
-                                        ("dwFlags",_wt2.DWORD),("wShowWindow",_wt2.WORD),("cbReserved2",_wt2.WORD),
-                                        ("lpReserved2",ctypes.c_char_p),("hStdInput",_wt2.HANDLE),
-                                        ("hStdOutput",_wt2.HANDLE),("hStdError",_wt2.HANDLE)]
-                        class _PI2(ctypes.Structure):
-                            _fields_ = [("hProcess",_wt2.HANDLE),("hThread",_wt2.HANDLE),
-                                        ("dwProcessId",_wt2.DWORD),("dwThreadId",_wt2.DWORD)]
-                        _si2 = _SI2(); _si2.cb = ctypes.sizeof(_SI2)
-                        _si2.dwFlags = 0x00000001
-                        _si2.wShowWindow = {"minimized":2,"maximized":3,"hidden":0}.get(run_mode, 1)
-                        _pi2 = _PI2()
-                        _cmdline2 = f'"{path}"' + (f" {args}" if args else "")
-                        _ok2 = _ct2.windll.advapi32.CreateProcessWithTokenW(
-                            _hDup2, 0x00000001, None, _cmdline2,
-                            0x00000400, None, cwd if cwd else None,
-                            _ct2.byref(_si2), _ct2.byref(_pi2)
-                        )
-                        _ct2.windll.kernel32.CloseHandle(_hDup2)
-                        if not _ok2:
-                            raise _ct2.WinError(_ct2.get_last_error())
-                        _ct2.windll.kernel32.CloseHandle(_pi2.hThread)
-                        _ct2.windll.kernel32.CloseHandle(_pi2.hProcess)
-                        self._log("INFO", f"    已降权启动（标准用户令牌）(Shell): {path}")
-                        _s_launched = True
+                        import shutil as _sh2
+                        _explorer2 = _sh2.which("explorer.exe") or "explorer.exe"
+                        subprocess.Popen([_explorer2, path], close_fds=True)
+                        self._log("INFO", f"    已通过 explorer.exe 降权启动(Shell): {path}")
                     except Exception as _ce2:
                         self._log("WARN", f"    Shell降权启动失败: {_ce2}，回退到 ShellExecuteW open")
-
-                    if not _s_launched:
                         import ctypes as _ctypes2
                         ret = _ctypes2.windll.shell32.ShellExecuteW(
                             None, "open", path, args if args else None,
@@ -4670,144 +4619,35 @@ except Exception as e:
                 else:
                     self._log("INFO", f"    已以管理员身份请求启动: {path}")
             else:
-                # 以普通用户身份启动
+                # 以普通用户身份启动（降权）
                 # AutoFlow 本身以管理员权限运行，直接 Popen 会继承管理员令牌。
-                # 正确降权方案：
-                #   1. 找到 explorer.exe 进程，打开其进程令牌（标准用户令牌）
-                #   2. 用 CreateProcessWithTokenW 以该令牌启动目标进程
-                #   3. 若上述失败（如 explorer.exe 未运行），回退到 Popen
+                # 降权方案：通过 explorer.exe 中转启动目标程序。
+                #   explorer.exe 进程本身运行在标准用户令牌下，
+                #   将目标路径作为参数传给它，explorer 会以自己的权限去执行。
+                #   此方案不需要 SE_ASSIGNPRIMARYTOKEN_PRIVILEGE 等特殊特权。
+                # 局限：不支持 wait/save_pid（explorer 立即返回，无法追踪子进程）。
+                #        需要 wait/save_pid 时回退到 Popen。
                 _launched = False
-                try:
-                    import ctypes, ctypes.wintypes as _wt
-                    _k32  = ctypes.windll.kernel32
-                    _adv  = ctypes.windll.advapi32
-                    _psapi = ctypes.windll.psapi
+                _need_popen = wait or bool(save_pid)
 
-                    # 1. 找 explorer.exe PID
-                    _explorer_pid = None
-                    import psutil as _psutil
-                    for _p in _psutil.process_iter(["name", "pid"]):
-                        if _p.info["name"].lower() == "explorer.exe":
-                            _explorer_pid = _p.info["pid"]
-                            break
-
-                    if _explorer_pid is None:
-                        raise RuntimeError("explorer.exe 未找到，无法降权")
-
-                    # 2. 打开 explorer.exe 进程句柄
-                    PROCESS_QUERY_INFORMATION = 0x0400
-                    _hProc = _k32.OpenProcess(PROCESS_QUERY_INFORMATION, False, _explorer_pid)
-                    if not _hProc:
-                        raise ctypes.WinError(ctypes.get_last_error())
-
-                    # 3. 从进程获取令牌
-                    TOKEN_DUPLICATE     = 0x0002
-                    TOKEN_ASSIGN_PRIMARY = 0x0001
-                    TOKEN_QUERY         = 0x0008
-                    _hToken = _wt.HANDLE()
-                    if not _adv.OpenProcessToken(_hProc, TOKEN_DUPLICATE | TOKEN_QUERY, ctypes.byref(_hToken)):
-                        _k32.CloseHandle(_hProc)
-                        raise ctypes.WinError(ctypes.get_last_error())
-                    _k32.CloseHandle(_hProc)
-
-                    # 4. 复制令牌（Primary token 用于 CreateProcessWithTokenW）
-                    _hDupToken = _wt.HANDLE()
-                    SecurityImpersonation = 2
-                    TokenPrimary = 1
-                    if not _adv.DuplicateTokenEx(
-                        _hToken,
-                        TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY,
-                        None, SecurityImpersonation, TokenPrimary,
-                        ctypes.byref(_hDupToken)
-                    ):
-                        _k32.CloseHandle(_hToken)
-                        raise ctypes.WinError(ctypes.get_last_error())
-                    _k32.CloseHandle(_hToken)
-
-                    # 5. 构建 STARTUPINFO / PROCESS_INFORMATION
-                    class _STARTUPINFOW(ctypes.Structure):
-                        _fields_ = [
-                            ("cb",              _wt.DWORD),
-                            ("lpReserved",      _wt.LPWSTR),
-                            ("lpDesktop",       _wt.LPWSTR),
-                            ("lpTitle",         _wt.LPWSTR),
-                            ("dwX",             _wt.DWORD),
-                            ("dwY",             _wt.DWORD),
-                            ("dwXSize",         _wt.DWORD),
-                            ("dwYSize",         _wt.DWORD),
-                            ("dwXCountChars",   _wt.DWORD),
-                            ("dwYCountChars",   _wt.DWORD),
-                            ("dwFillAttribute", _wt.DWORD),
-                            ("dwFlags",         _wt.DWORD),
-                            ("wShowWindow",     _wt.WORD),
-                            ("cbReserved2",     _wt.WORD),
-                            ("lpReserved2",     ctypes.c_char_p),
-                            ("hStdInput",       _wt.HANDLE),
-                            ("hStdOutput",      _wt.HANDLE),
-                            ("hStdError",       _wt.HANDLE),
-                        ]
-                    class _PROCESS_INFORMATION(ctypes.Structure):
-                        _fields_ = [
-                            ("hProcess",    _wt.HANDLE),
-                            ("hThread",     _wt.HANDLE),
-                            ("dwProcessId", _wt.DWORD),
-                            ("dwThreadId",  _wt.DWORD),
-                        ]
-
-                    _si = _STARTUPINFOW()
-                    _si.cb = ctypes.sizeof(_STARTUPINFOW)
-                    _si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
-                    _show_map_t = {"minimized": 2, "maximized": 3, "hidden": 0}
-                    _si.wShowWindow = _show_map_t.get(run_mode, 1)
-                    _pi = _PROCESS_INFORMATION()
-
-                    # 构建命令行字符串
-                    _cmdline = f'"{path}"'
-                    if args:
-                        _cmdline += f" {args}"
-
-                    LOGON_WITH_PROFILE        = 0x00000001
-                    CREATE_UNICODE_ENVIRONMENT = 0x00000400
-                    _flags = CREATE_UNICODE_ENVIRONMENT
-                    if run_mode == "hidden":
-                        _flags |= 0x08000000  # CREATE_NO_WINDOW
-
-                    _ok = _adv.CreateProcessWithTokenW(
-                        _hDupToken,
-                        LOGON_WITH_PROFILE,
-                        None,                         # lpApplicationName
-                        _cmdline,                     # lpCommandLine
-                        _flags,
-                        None,                         # lpEnvironment
-                        cwd if cwd else None,         # lpCurrentDirectory
-                        ctypes.byref(_si),
-                        ctypes.byref(_pi),
-                    )
-                    _k32.CloseHandle(_hDupToken)
-
-                    if not _ok:
-                        raise ctypes.WinError(ctypes.get_last_error())
-
-                    _child_pid = _pi.dwProcessId
-                    _k32.CloseHandle(_pi.hThread)
-
-                    self._log("INFO", f"    已降权启动（标准用户令牌）: {path}  PID={_child_pid}")
-                    if save_pid:
-                        self.variables[save_pid] = _child_pid
-                        self._log("INFO", f"    进程 PID={_child_pid} 已存入变量 {save_pid}")
-
-                    if wait:
-                        INFINITE = 0xFFFFFFFF
-                        _timeout_ms = int(timeout * 1000) if timeout > 0 else INFINITE
-                        _k32.WaitForSingleObject(_pi.hProcess, _timeout_ms)
-                        _exit_code = _wt.DWORD()
-                        _k32.GetExitCodeProcess(_pi.hProcess, ctypes.byref(_exit_code))
-                        self._log("INFO", f"    程序已退出，返回码: {_exit_code.value}")
-                    _k32.CloseHandle(_pi.hProcess)
-                    _launched = True
-
-                except Exception as _de:
-                    self._log("WARN", f"    降权启动失败: {_de}，回退到 Popen（将继承管理员权限）")
+                if not _need_popen:
+                    try:
+                        import shutil as _shutil
+                        _explorer = _shutil.which("explorer.exe") or "explorer.exe"
+                        # explorer.exe <path> [args] 方式启动：explorer 以自己的令牌执行目标
+                        _exp_cmd = [_explorer, path]
+                        if args:
+                            # explorer 不传递额外参数给目标，有 args 时走 Popen 回退
+                            raise RuntimeError("需要传递启动参数，回退到 Popen")
+                        subprocess.Popen(
+                            _exp_cmd,
+                            cwd=cwd if cwd else None,
+                            close_fds=True,
+                        )
+                        self._log("INFO", f"    已通过 explorer.exe 降权启动: {path}")
+                        _launched = True
+                    except Exception as _de:
+                        self._log("WARN", f"    降权启动失败: {_de}，回退到 Popen（将继承管理员权限）")
 
                 if not _launched:
                     proc = subprocess.Popen(
