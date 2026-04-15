@@ -4552,20 +4552,66 @@ except Exception as e:
                     else:
                         self._log("INFO", f"    已以管理员身份启动(Shell): {path}")
                 else:
-                    # 以普通用户身份运行：通过 IShellDispatch2 COM 降权
+                    # 以普通用户身份运行：用 explorer.exe 令牌 + CreateProcessWithTokenW 降权
+                    _s_launched = False
                     try:
-                        import comtypes.client as _cc2
-                        _shell2 = _cc2.CreateObject("Shell.Application")
-                        _shell2.ShellExecute(
-                            path,
-                            args if args else "",
-                            cwd if cwd else "",
-                            "",
-                            _sw2
+                        import ctypes as _ct2, ctypes.wintypes as _wt2
+                        import psutil as _ps2
+                        _exp_pid2 = None
+                        for _pp2 in _ps2.process_iter(["name", "pid"]):
+                            if _pp2.info["name"].lower() == "explorer.exe":
+                                _exp_pid2 = _pp2.info["pid"]
+                                break
+                        if _exp_pid2 is None:
+                            raise RuntimeError("explorer.exe 未找到")
+                        _hProc2 = _ct2.windll.kernel32.OpenProcess(0x0400, False, _exp_pid2)
+                        if not _hProc2:
+                            raise _ct2.WinError(_ct2.get_last_error())
+                        _hTok2 = _wt2.HANDLE()
+                        if not _ct2.windll.advapi32.OpenProcessToken(_hProc2, 0x0002 | 0x0008, _ct2.byref(_hTok2)):
+                            _ct2.windll.kernel32.CloseHandle(_hProc2)
+                            raise _ct2.WinError(_ct2.get_last_error())
+                        _ct2.windll.kernel32.CloseHandle(_hProc2)
+                        _hDup2 = _wt2.HANDLE()
+                        if not _ct2.windll.advapi32.DuplicateTokenEx(
+                            _hTok2, 0x0001 | 0x0002 | 0x0008, None, 2, 1, _ct2.byref(_hDup2)
+                        ):
+                            _ct2.windll.kernel32.CloseHandle(_hTok2)
+                            raise _ct2.WinError(_ct2.get_last_error())
+                        _ct2.windll.kernel32.CloseHandle(_hTok2)
+
+                        class _SI2(ctypes.Structure):
+                            _fields_ = [("cb",_wt2.DWORD),("lpReserved",_wt2.LPWSTR),("lpDesktop",_wt2.LPWSTR),
+                                        ("lpTitle",_wt2.LPWSTR),("dwX",_wt2.DWORD),("dwY",_wt2.DWORD),
+                                        ("dwXSize",_wt2.DWORD),("dwYSize",_wt2.DWORD),("dwXCountChars",_wt2.DWORD),
+                                        ("dwYCountChars",_wt2.DWORD),("dwFillAttribute",_wt2.DWORD),
+                                        ("dwFlags",_wt2.DWORD),("wShowWindow",_wt2.WORD),("cbReserved2",_wt2.WORD),
+                                        ("lpReserved2",ctypes.c_char_p),("hStdInput",_wt2.HANDLE),
+                                        ("hStdOutput",_wt2.HANDLE),("hStdError",_wt2.HANDLE)]
+                        class _PI2(ctypes.Structure):
+                            _fields_ = [("hProcess",_wt2.HANDLE),("hThread",_wt2.HANDLE),
+                                        ("dwProcessId",_wt2.DWORD),("dwThreadId",_wt2.DWORD)]
+                        _si2 = _SI2(); _si2.cb = ctypes.sizeof(_SI2)
+                        _si2.dwFlags = 0x00000001
+                        _si2.wShowWindow = {"minimized":2,"maximized":3,"hidden":0}.get(run_mode, 1)
+                        _pi2 = _PI2()
+                        _cmdline2 = f'"{path}"' + (f" {args}" if args else "")
+                        _ok2 = _ct2.windll.advapi32.CreateProcessWithTokenW(
+                            _hDup2, 0x00000001, None, _cmdline2,
+                            0x00000400, None, cwd if cwd else None,
+                            _ct2.byref(_si2), _ct2.byref(_pi2)
                         )
-                        self._log("INFO", f"    已启动（普通权限/COM降权）(Shell): {path}")
+                        _ct2.windll.kernel32.CloseHandle(_hDup2)
+                        if not _ok2:
+                            raise _ct2.WinError(_ct2.get_last_error())
+                        _ct2.windll.kernel32.CloseHandle(_pi2.hThread)
+                        _ct2.windll.kernel32.CloseHandle(_pi2.hProcess)
+                        self._log("INFO", f"    已降权启动（标准用户令牌）(Shell): {path}")
+                        _s_launched = True
                     except Exception as _ce2:
-                        self._log("WARN", f"    COM降权启动失败: {_ce2}，回退到 ShellExecuteW open")
+                        self._log("WARN", f"    Shell降权启动失败: {_ce2}，回退到 ShellExecuteW open")
+
+                    if not _s_launched:
                         import ctypes as _ctypes2
                         ret = _ctypes2.windll.shell32.ShellExecuteW(
                             None, "open", path, args if args else None,
@@ -4626,37 +4672,144 @@ except Exception as e:
             else:
                 # 以普通用户身份启动
                 # AutoFlow 本身以管理员权限运行，直接 Popen 会继承管理员令牌。
-                # 正确降权方案：通过 IShellDispatch2 COM 接口（即 explorer.exe Shell 对象）启动，
-                # 该接口在 Shell host 的标准用户上下文中执行，不会继承父进程的管理员令牌。
-                # 注意：COM 降权模式不支持 wait/save_pid/hidden/cwd，需要这些功能时回退到 Popen。
-                _needs_advanced = wait or save_pid or cwd or run_mode in ("hidden",)
-                _launched_via_com = False
-                if not _needs_advanced:
-                    try:
-                        import comtypes.client as _cc
-                        import comtypes
-                        # 获取 Shell.Application 对象（IShellDispatch2）
-                        _shell = _cc.CreateObject("Shell.Application")
-                        # ShellExecute(File, Arguments, Directory, Operation, Show)
-                        # Operation="" / "open" 均以普通用户权限执行（不提权）
-                        _show_map = {
-                            "minimized": 2,   # SW_SHOWMINIMIZED
-                            "maximized": 3,   # SW_SHOWMAXIMIZED
-                        }
-                        _show = _show_map.get(run_mode, 1)  # SW_SHOWNORMAL=1
-                        _shell.ShellExecute(
-                            path,
-                            args if args else "",
-                            cwd if cwd else "",
-                            "",   # 空操作 = open，不触发 UAC 提权
-                            _show
-                        )
-                        self._log("INFO", f"    已启动（普通权限/COM降权）: {path}")
-                        _launched_via_com = True
-                    except Exception as _ce:
-                        self._log("WARN", f"    COM降权启动失败: {_ce}，回退到 Popen")
+                # 正确降权方案：
+                #   1. 找到 explorer.exe 进程，打开其进程令牌（标准用户令牌）
+                #   2. 用 CreateProcessWithTokenW 以该令牌启动目标进程
+                #   3. 若上述失败（如 explorer.exe 未运行），回退到 Popen
+                _launched = False
+                try:
+                    import ctypes, ctypes.wintypes as _wt
+                    _k32  = ctypes.windll.kernel32
+                    _adv  = ctypes.windll.advapi32
+                    _psapi = ctypes.windll.psapi
 
-                if not _launched_via_com:
+                    # 1. 找 explorer.exe PID
+                    _explorer_pid = None
+                    import psutil as _psutil
+                    for _p in _psutil.process_iter(["name", "pid"]):
+                        if _p.info["name"].lower() == "explorer.exe":
+                            _explorer_pid = _p.info["pid"]
+                            break
+
+                    if _explorer_pid is None:
+                        raise RuntimeError("explorer.exe 未找到，无法降权")
+
+                    # 2. 打开 explorer.exe 进程句柄
+                    PROCESS_QUERY_INFORMATION = 0x0400
+                    _hProc = _k32.OpenProcess(PROCESS_QUERY_INFORMATION, False, _explorer_pid)
+                    if not _hProc:
+                        raise ctypes.WinError(ctypes.get_last_error())
+
+                    # 3. 从进程获取令牌
+                    TOKEN_DUPLICATE     = 0x0002
+                    TOKEN_ASSIGN_PRIMARY = 0x0001
+                    TOKEN_QUERY         = 0x0008
+                    _hToken = _wt.HANDLE()
+                    if not _adv.OpenProcessToken(_hProc, TOKEN_DUPLICATE | TOKEN_QUERY, ctypes.byref(_hToken)):
+                        _k32.CloseHandle(_hProc)
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    _k32.CloseHandle(_hProc)
+
+                    # 4. 复制令牌（Primary token 用于 CreateProcessWithTokenW）
+                    _hDupToken = _wt.HANDLE()
+                    SecurityImpersonation = 2
+                    TokenPrimary = 1
+                    if not _adv.DuplicateTokenEx(
+                        _hToken,
+                        TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY,
+                        None, SecurityImpersonation, TokenPrimary,
+                        ctypes.byref(_hDupToken)
+                    ):
+                        _k32.CloseHandle(_hToken)
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    _k32.CloseHandle(_hToken)
+
+                    # 5. 构建 STARTUPINFO / PROCESS_INFORMATION
+                    class _STARTUPINFOW(ctypes.Structure):
+                        _fields_ = [
+                            ("cb",              _wt.DWORD),
+                            ("lpReserved",      _wt.LPWSTR),
+                            ("lpDesktop",       _wt.LPWSTR),
+                            ("lpTitle",         _wt.LPWSTR),
+                            ("dwX",             _wt.DWORD),
+                            ("dwY",             _wt.DWORD),
+                            ("dwXSize",         _wt.DWORD),
+                            ("dwYSize",         _wt.DWORD),
+                            ("dwXCountChars",   _wt.DWORD),
+                            ("dwYCountChars",   _wt.DWORD),
+                            ("dwFillAttribute", _wt.DWORD),
+                            ("dwFlags",         _wt.DWORD),
+                            ("wShowWindow",     _wt.WORD),
+                            ("cbReserved2",     _wt.WORD),
+                            ("lpReserved2",     ctypes.c_char_p),
+                            ("hStdInput",       _wt.HANDLE),
+                            ("hStdOutput",      _wt.HANDLE),
+                            ("hStdError",       _wt.HANDLE),
+                        ]
+                    class _PROCESS_INFORMATION(ctypes.Structure):
+                        _fields_ = [
+                            ("hProcess",    _wt.HANDLE),
+                            ("hThread",     _wt.HANDLE),
+                            ("dwProcessId", _wt.DWORD),
+                            ("dwThreadId",  _wt.DWORD),
+                        ]
+
+                    _si = _STARTUPINFOW()
+                    _si.cb = ctypes.sizeof(_STARTUPINFOW)
+                    _si.dwFlags = 0x00000001  # STARTF_USESHOWWINDOW
+                    _show_map_t = {"minimized": 2, "maximized": 3, "hidden": 0}
+                    _si.wShowWindow = _show_map_t.get(run_mode, 1)
+                    _pi = _PROCESS_INFORMATION()
+
+                    # 构建命令行字符串
+                    _cmdline = f'"{path}"'
+                    if args:
+                        _cmdline += f" {args}"
+
+                    LOGON_WITH_PROFILE        = 0x00000001
+                    CREATE_UNICODE_ENVIRONMENT = 0x00000400
+                    _flags = CREATE_UNICODE_ENVIRONMENT
+                    if run_mode == "hidden":
+                        _flags |= 0x08000000  # CREATE_NO_WINDOW
+
+                    _ok = _adv.CreateProcessWithTokenW(
+                        _hDupToken,
+                        LOGON_WITH_PROFILE,
+                        None,                         # lpApplicationName
+                        _cmdline,                     # lpCommandLine
+                        _flags,
+                        None,                         # lpEnvironment
+                        cwd if cwd else None,         # lpCurrentDirectory
+                        ctypes.byref(_si),
+                        ctypes.byref(_pi),
+                    )
+                    _k32.CloseHandle(_hDupToken)
+
+                    if not _ok:
+                        raise ctypes.WinError(ctypes.get_last_error())
+
+                    _child_pid = _pi.dwProcessId
+                    _k32.CloseHandle(_pi.hThread)
+
+                    self._log("INFO", f"    已降权启动（标准用户令牌）: {path}  PID={_child_pid}")
+                    if save_pid:
+                        self.variables[save_pid] = _child_pid
+                        self._log("INFO", f"    进程 PID={_child_pid} 已存入变量 {save_pid}")
+
+                    if wait:
+                        INFINITE = 0xFFFFFFFF
+                        _timeout_ms = int(timeout * 1000) if timeout > 0 else INFINITE
+                        _k32.WaitForSingleObject(_pi.hProcess, _timeout_ms)
+                        _exit_code = _wt.DWORD()
+                        _k32.GetExitCodeProcess(_pi.hProcess, ctypes.byref(_exit_code))
+                        self._log("INFO", f"    程序已退出，返回码: {_exit_code.value}")
+                    _k32.CloseHandle(_pi.hProcess)
+                    _launched = True
+
+                except Exception as _de:
+                    self._log("WARN", f"    降权启动失败: {_de}，回退到 Popen（将继承管理员权限）")
+
+                if not _launched:
                     proc = subprocess.Popen(
                         cmd,
                         cwd=cwd if cwd else None,
