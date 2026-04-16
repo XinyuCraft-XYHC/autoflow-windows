@@ -555,7 +555,7 @@
 #     遍历所有顶层窗口逐一用 child_window(**ctrl_kw).wrapper_object() 尝试找控件；
 #     优先检查与 hwnd 对应的窗口，对弹出子对话框（类名不稳定）也能正确定位；
 
-VERSION       = "4.18.1"
+VERSION       = "4.18.2"
 VERSION_TUPLE = (4, 18, 1)
 
 APP_NAME      = "AutoFlow"
