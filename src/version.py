@@ -555,8 +555,14 @@
 #     遍历所有顶层窗口逐一用 child_window(**ctrl_kw).wrapper_object() 尝试找控件；
 #     优先检查与 hwnd 对应的窗口，对弹出子对话框（类名不稳定）也能正确定位；
 
-VERSION       = "4.18.2"
-VERSION_TUPLE = (4, 18, 1)
+VERSION       = "4.18.3"
+VERSION_TUPLE = (4, 18, 3)
+
+# v4.18.3  2026-04-17
+#   【降权启动修复（第二轮）】
+#   fix: explorer.exe 中转降权导致部分应用打开文档目录（explorer 将 .exe 路径按 Shell Association 处理）
+#   fix: 改用复制 explorer.exe 进程令牌 + CreateProcessWithTokenW 降权（管理员进程默认持有 TOKEN_DUPLICATE 权限）
+#   fix: 主 .exe 分支和 _SHELL_EXTS 分支统一使用新的 _launch_with_explorer_token() 方法
 
 APP_NAME      = "AutoFlow"
 FULL_NAME     = f"{APP_NAME} v{VERSION}"

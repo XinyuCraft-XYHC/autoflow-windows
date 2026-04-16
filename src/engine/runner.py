@@ -4552,15 +4552,10 @@ except Exception as e:
                     else:
                         self._log("INFO", f"    已以管理员身份启动(Shell): {path}")
                 else:
-                    # 以普通用户身份运行：通过 explorer.exe 中转降权
-                    # explorer.exe 本身运行在标准用户令牌下，将路径传给它即可降权执行
-                    try:
-                        import shutil as _sh2
-                        _explorer2 = _sh2.which("explorer.exe") or "explorer.exe"
-                        subprocess.Popen([_explorer2, path], close_fds=True)
-                        self._log("INFO", f"    已通过 explorer.exe 降权启动(Shell): {path}")
-                    except Exception as _ce2:
-                        self._log("WARN", f"    Shell降权启动失败: {_ce2}，回退到 ShellExecuteW open")
+                    # 以普通用户身份运行：复制 explorer.exe 令牌降权
+                    _launched_shell = self._launch_with_explorer_token(path, args, cwd, run_mode)
+                    if not _launched_shell:
+                        # 降权失败，回退 ShellExecuteW open（继承管理员令牌）
                         import ctypes as _ctypes2
                         ret = _ctypes2.windll.shell32.ShellExecuteW(
                             None, "open", path, args if args else None,
@@ -4570,7 +4565,7 @@ except Exception as e:
                             self._log("WARN", f"    启动应用(Shell)失败，错误码: {ret}，尝试 os.startfile")
                             _os.startfile(path)
                         else:
-                            self._log("INFO", f"    已通过 Shell 启动: {path}")
+                            self._log("INFO", f"    已通过 Shell 启动（管理员权限）: {path}")
             except Exception as _e:
                 self._log("ERROR", f"    启动应用失败: {_e}")
             return
@@ -4620,34 +4615,16 @@ except Exception as e:
                     self._log("INFO", f"    已以管理员身份请求启动: {path}")
             else:
                 # 以普通用户身份启动（降权）
-                # AutoFlow 本身以管理员权限运行，直接 Popen 会继承管理员令牌。
-                # 降权方案：通过 explorer.exe 中转启动目标程序。
-                #   explorer.exe 进程本身运行在标准用户令牌下，
-                #   将目标路径作为参数传给它，explorer 会以自己的权限去执行。
-                #   此方案不需要 SE_ASSIGNPRIMARYTOKEN_PRIVILEGE 等特殊特权。
-                # 局限：不支持 wait/save_pid（explorer 立即返回，无法追踪子进程）。
-                #        需要 wait/save_pid 时回退到 Popen。
+                # 降权方案：复制 explorer.exe 的标准用户令牌，用 CreateProcessWithTokenW 启动。
+                # 此方案管理员进程默认具有 TOKEN_DUPLICATE 权限，无需特殊特权。
                 _launched = False
                 _need_popen = wait or bool(save_pid)
 
                 if not _need_popen:
-                    try:
-                        import shutil as _shutil
-                        _explorer = _shutil.which("explorer.exe") or "explorer.exe"
-                        # explorer.exe <path> [args] 方式启动：explorer 以自己的令牌执行目标
-                        _exp_cmd = [_explorer, path]
-                        if args:
-                            # explorer 不传递额外参数给目标，有 args 时走 Popen 回退
-                            raise RuntimeError("需要传递启动参数，回退到 Popen")
-                        subprocess.Popen(
-                            _exp_cmd,
-                            cwd=cwd if cwd else None,
-                            close_fds=True,
-                        )
-                        self._log("INFO", f"    已通过 explorer.exe 降权启动: {path}")
-                        _launched = True
-                    except Exception as _de:
-                        self._log("WARN", f"    降权启动失败: {_de}，回退到 Popen（将继承管理员权限）")
+                    _launched = self._launch_with_explorer_token(path, args, cwd, run_mode)
+
+                if _launched:
+                    pass  # 已成功启动，跳过 Popen
 
                 if not _launched:
                     proc = subprocess.Popen(
@@ -4678,6 +4655,187 @@ except Exception as e:
             self._log("ERROR", f"    启动失败：权限不足，请尝试「以管理员身份运行」")
         except Exception as e:
             self._log("ERROR", f"    启动应用失败: {e}")
+
+    def _launch_with_explorer_token(self, path: str, args: str, cwd, run_mode: str) -> bool:
+        """
+        通过复制 explorer.exe 的标准用户令牌来降权启动目标程序。
+        成功返回 True，失败返回 False（调用方回退到 Popen）。
+
+        原理：
+          1. 枚举进程找到 explorer.exe 的 PID
+          2. OpenProcess → OpenProcessToken → DuplicateTokenEx 得到可用令牌
+          3. 用 CreateProcessWithTokenW 以该令牌启动目标程序
+        管理员进程默认持有 TOKEN_DUPLICATE 权限，无需额外特权。
+        """
+        import ctypes
+        import ctypes.wintypes as _wt
+        import shlex as _shlex
+        import os as _os
+
+        try:
+            # ── 1. 找 explorer.exe PID ──────────────────────────────────────────
+            TH32CS_SNAPPROCESS = 0x00000002
+
+            class PROCESSENTRY32(ctypes.Structure):
+                _fields_ = [
+                    ("dwSize",              _wt.DWORD),
+                    ("cntUsage",            _wt.DWORD),
+                    ("th32ProcessID",       _wt.DWORD),
+                    ("th32DefaultHeapID",   ctypes.POINTER(_wt.ULONG)),
+                    ("th32ModuleID",        _wt.DWORD),
+                    ("cntThreads",          _wt.DWORD),
+                    ("th32ParentProcessID", _wt.DWORD),
+                    ("pcPriClassBase",      ctypes.c_long),
+                    ("dwFlags",             _wt.DWORD),
+                    ("szExeFile",           ctypes.c_char * 260),
+                ]
+
+            hSnap = ctypes.windll.kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+            if hSnap == ctypes.c_void_p(-1).value:
+                raise OSError("CreateToolhelp32Snapshot 失败")
+
+            explorer_pid = 0
+            try:
+                pe = PROCESSENTRY32()
+                pe.dwSize = ctypes.sizeof(PROCESSENTRY32)
+                if ctypes.windll.kernel32.Process32First(hSnap, ctypes.byref(pe)):
+                    while True:
+                        name = pe.szExeFile.decode("mbcs", errors="ignore").lower()
+                        if name == "explorer.exe":
+                            explorer_pid = pe.th32ProcessID
+                            break
+                        if not ctypes.windll.kernel32.Process32Next(hSnap, ctypes.byref(pe)):
+                            break
+            finally:
+                ctypes.windll.kernel32.CloseHandle(hSnap)
+
+            if not explorer_pid:
+                raise OSError("未找到 explorer.exe 进程")
+
+            # ── 2. 打开进程并获取令牌 ──────────────────────────────────────────
+            PROCESS_QUERY_INFORMATION = 0x0400
+            TOKEN_DUPLICATE            = 0x0002
+            TOKEN_QUERY                = 0x0008
+            TOKEN_ASSIGN_PRIMARY       = 0x0001
+            TOKEN_ADJUST_DEFAULT       = 0x0080
+            TOKEN_ADJUST_SESSIONID     = 0x0100
+            SecurityImpersonation      = 2
+            TokenPrimary               = 1
+
+            hProcess = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_INFORMATION, False, explorer_pid
+            )
+            if not hProcess:
+                raise OSError(f"OpenProcess(explorer.exe) 失败: {ctypes.GetLastError()}")
+
+            hToken = _wt.HANDLE()
+            try:
+                ok = ctypes.windll.advapi32.OpenProcessToken(
+                    hProcess,
+                    TOKEN_DUPLICATE | TOKEN_QUERY,
+                    ctypes.byref(hToken)
+                )
+                if not ok:
+                    raise OSError(f"OpenProcessToken 失败: {ctypes.GetLastError()}")
+            finally:
+                ctypes.windll.kernel32.CloseHandle(hProcess)
+
+            hPrimary = _wt.HANDLE()
+            try:
+                ok = ctypes.windll.advapi32.DuplicateTokenEx(
+                    hToken,
+                    TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY |
+                    TOKEN_ADJUST_DEFAULT | TOKEN_ADJUST_SESSIONID,
+                    None,
+                    SecurityImpersonation,
+                    TokenPrimary,
+                    ctypes.byref(hPrimary)
+                )
+                if not ok:
+                    raise OSError(f"DuplicateTokenEx 失败: {ctypes.GetLastError()}")
+            finally:
+                ctypes.windll.kernel32.CloseHandle(hToken)
+
+            # ── 3. 用新令牌启动目标程序 ──────────────────────────────────────────
+            SW_HIDE          = 0
+            SW_SHOWNORMAL    = 1
+            SW_SHOWMINIMIZED = 2
+            SW_SHOWMAXIMIZED = 3
+            CREATE_UNICODE_ENVIRONMENT = 0x00000400
+
+            show_map = {"hidden": SW_HIDE, "minimized": SW_SHOWMINIMIZED,
+                        "maximized": SW_SHOWMAXIMIZED}
+            sw = show_map.get(run_mode, SW_SHOWNORMAL)
+
+            class STARTUPINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cb",              _wt.DWORD),
+                    ("lpReserved",      _wt.LPWSTR),
+                    ("lpDesktop",       _wt.LPWSTR),
+                    ("lpTitle",         _wt.LPWSTR),
+                    ("dwX",             _wt.DWORD),
+                    ("dwY",             _wt.DWORD),
+                    ("dwXSize",         _wt.DWORD),
+                    ("dwYSize",         _wt.DWORD),
+                    ("dwXCountChars",   _wt.DWORD),
+                    ("dwYCountChars",   _wt.DWORD),
+                    ("dwFillAttribute", _wt.DWORD),
+                    ("dwFlags",         _wt.DWORD),
+                    ("wShowWindow",     _wt.WORD),
+                    ("cbReserved2",     _wt.WORD),
+                    ("lpReserved2",     ctypes.POINTER(_wt.BYTE)),
+                    ("hStdInput",       _wt.HANDLE),
+                    ("hStdOutput",      _wt.HANDLE),
+                    ("hStdError",       _wt.HANDLE),
+                ]
+
+            class PROCESS_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("hProcess",    _wt.HANDLE),
+                    ("hThread",     _wt.HANDLE),
+                    ("dwProcessId", _wt.DWORD),
+                    ("dwThreadId",  _wt.DWORD),
+                ]
+
+            STARTF_USESHOWWINDOW = 0x00000001
+            si = STARTUPINFO()
+            si.cb = ctypes.sizeof(STARTUPINFO)
+            si.dwFlags = STARTF_USESHOWWINDOW
+            si.wShowWindow = sw
+            pi = PROCESS_INFORMATION()
+
+            # 构建命令行字符串
+            cmd_str = f'"{path}"'
+            if args:
+                cmd_str += f" {args}"
+
+            cwd_str = cwd if cwd and _os.path.isdir(str(cwd)) else None
+
+            ok = ctypes.windll.advapi32.CreateProcessWithTokenW(
+                hPrimary,
+                0,            # dwLogonFlags
+                None,         # lpApplicationName（用 lpCommandLine）
+                cmd_str,      # lpCommandLine
+                CREATE_UNICODE_ENVIRONMENT,
+                None,         # lpEnvironment（继承 explorer 环境）
+                cwd_str,      # lpCurrentDirectory
+                ctypes.byref(si),
+                ctypes.byref(pi)
+            )
+
+            ctypes.windll.kernel32.CloseHandle(hPrimary)
+
+            if not ok:
+                raise OSError(f"CreateProcessWithTokenW 失败: {ctypes.GetLastError()}")
+
+            ctypes.windll.kernel32.CloseHandle(pi.hProcess)
+            ctypes.windll.kernel32.CloseHandle(pi.hThread)
+            self._log("INFO", f"    已通过用户令牌降权启动: {path}")
+            return True
+
+        except Exception as _de:
+            self._log("WARN", f"    降权启动失败: {_de}，回退到 Popen（将继承管理员权限）")
+            return False
 
     def _activate_window(self, title: str, timeout: float):
         """激活/前置窗口"""
